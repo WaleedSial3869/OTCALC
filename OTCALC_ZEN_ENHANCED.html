@@ -251,9 +251,16 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6m6-12h6m-6 6h6M1 12h6m0 0h6"></path></svg>
         );
 
+        // --- STORAGE KEY HELPERS ---
+
+        const getStorageKey = (employeeName) => {
+            if (!employeeName) return null;
+            return `ot_tracker_${employeeName.toLowerCase().replace(/\s+/g, '_')}`;
+        };
+
         // --- COMPONENTS ---
 
-        const Dashboard = ({ shifts, settings, onNewShift, onDeleteShift, onUpdateSettings, onExport }) => {
+        const Dashboard = ({ shifts, settings, onNewShift, onDeleteShift, onUpdateSettings, onExport, welcomeMessage }) => {
             const currentMonth = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
 
             const totalOT = shifts.reduce((sum, s) => sum + s.totalOT, 0);
@@ -272,6 +279,13 @@
                         </div>
                     </div>
 
+                    {/* Welcome back message */}
+                    {welcomeMessage && (
+                        <div className="bg-gradient-to-r from-green-50 to-green-100 p-5 rounded-2xl border border-green-200 animate-slide-up">
+                            <p className="text-sm font-bold text-green-900">✅ {welcomeMessage}</p>
+                        </div>
+                    )}
+
                     {/* Name Input if missing */}
                     {!settings.employeeName && (
                         <div className="bg-gradient-to-r from-orange-50 to-orange-100 p-5 rounded-2xl border border-orange-200 animate-slide-up">
@@ -280,7 +294,12 @@
                                 type="text"
                                 className="w-full px-4 py-3 rounded-xl border-orange-200 focus:ring-2 focus:ring-orange-500 outline-none bg-white shadow-sm"
                                 placeholder="e.g. Jane Doe"
-                                onBlur={(e) => onUpdateSettings({...settings, employeeName: e.target.value})}
+                                onBlur={(e) => {
+                                    const name = e.target.value.trim();
+                                    if (name) {
+                                        onUpdateSettings({...settings, employeeName: name});
+                                    }
+                                }}
                             />
                         </div>
                     )}
@@ -325,31 +344,34 @@
                                 <p className="text-sm mt-1 opacity-70">Tap "New Shift" to start tracking.</p>
                             </div>
                         ) : (
-                            shifts.slice().reverse().map(shift => (
-                                <div key={shift.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center group active:bg-gray-50 transition-colors">
-                                    <div className="flex items-center gap-4">
-                                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-lg font-bold shadow-sm
-                                            ${shift.type === 'weekend' ? 'bg-purple-100 text-purple-600' :
-                                            shift.type === 'stat_holiday' ? 'bg-red-100 text-red-600' :
-                                            shift.type === 'custom' ? 'bg-indigo-100 text-indigo-600' : 'bg-blue-100 text-blue-600'}`}>
-                                            {shift.date.split('-')[2]}
-                                        </div>
-                                        <div>
-                                            <div className="font-bold text-gray-900 capitalize text-sm sm:text-base">{shift.type.replace('_', ' ')}</div>
-                                            <div className="text-xs text-gray-500 flex gap-2 font-medium mt-0.5">
-                                                <span className="bg-gray-100 px-1.5 py-0.5 rounded">OT: {shift.totalOT.toFixed(2)}h</span>
-                                                <span className="bg-gray-100 px-1.5 py-0.5 rounded">SB: {shift.totalSB.toFixed(2)}h</span>
+                            shifts.slice().reverse().map(shift => {
+                                const shiftType = shift.shiftType || shift.type; // Support both field names
+                                return (
+                                    <div key={shift.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center group active:bg-gray-50 transition-colors">
+                                        <div className="flex items-center gap-4">
+                                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-lg font-bold shadow-sm
+                                                ${shiftType === 'weekend' ? 'bg-purple-100 text-purple-600' :
+                                                shiftType === 'stat_holiday' ? 'bg-red-100 text-red-600' :
+                                                shiftType === 'custom' ? 'bg-indigo-100 text-indigo-600' : 'bg-blue-100 text-blue-600'}`}>
+                                                {shift.date.split('-')[2]}
+                                            </div>
+                                            <div>
+                                                <div className="font-bold text-gray-900 capitalize text-sm sm:text-base">{shiftType.replace('_', ' ')}</div>
+                                                <div className="text-xs text-gray-500 flex gap-2 font-medium mt-0.5">
+                                                    <span className="bg-gray-100 px-1.5 py-0.5 rounded">OT: {shift.totalOT.toFixed(2)}h</span>
+                                                    <span className="bg-gray-100 px-1.5 py-0.5 rounded">SB: {shift.totalSB.toFixed(2)}h</span>
+                                                </div>
                                             </div>
                                         </div>
+                                        <button
+                                            onClick={() => onDeleteShift(shift.id)}
+                                            className="text-gray-300 hover:text-red-500 p-3 rounded-xl hover:bg-red-50 transition-colors"
+                                        >
+                                            <Trash />
+                                        </button>
                                     </div>
-                                    <button
-                                        onClick={() => onDeleteShift(shift.id)}
-                                        className="text-gray-300 hover:text-red-500 p-3 rounded-xl hover:bg-red-50 transition-colors"
-                                    >
-                                        <Trash />
-                                    </button>
-                                </div>
-                            ))
+                                );
+                            })
                         )}
                     </div>
                 </div>
@@ -506,20 +528,30 @@
             const handleSave = () => {
                 const blocks = calculateBlocks();
                 const { totalOT, totalSB } = calculateTotalPreview();
+                const timeSlots = generateTimeSlots(type, customStart, customEnd);
 
+                // Match OTCALC3 data structure
                 const newShift = {
                     id: Date.now().toString(),
                     employeeName,
                     date,
-                    type,
-                    customStart,
-                    customEnd,
-                    hourlyData,
+                    shiftType: type, // OTCALC3 uses "shiftType"
+                    customHours: type === 'custom' ? calculateHoursBetween(customStart, customEnd) : null,
+                    customStartTime: customStart, // OTCALC3 uses "customStartTime"
+                    customShiftEnd: customEnd, // Keep for backward compatibility
+                    regularShiftStart: customStart,
+                    regularShiftEnd: customEnd,
+                    emailData: hourlyData, // OTCALC3 uses "emailData"
+                    hourlyData, // Keep both for compatibility
                     blocks,
                     blockOverrides,
+                    timeSlots,
+                    overtimeCode: blocks.length > 0 ? blocks[0].code : '260',
                     notes: '',
                     totalOT: parseFloat(totalOT.toFixed(2)),
-                    totalSB: parseFloat(totalSB.toFixed(2))
+                    totalSB: parseFloat(totalSB.toFixed(2)),
+                    isDraft: false,
+                    draftSavedAt: null
                 };
                 onSave(newShift);
             };
@@ -843,20 +875,64 @@
                 employeeName: '',
                 statHolidays: []
             });
+            const [welcomeMessage, setWelcomeMessage] = useState('');
 
-            // Load data
+            // Load data on mount - try to load settings first
             useEffect(() => {
-                const savedShifts = localStorage.getItem('otcalc_zen_shifts');
-                const savedSettings = localStorage.getItem('otcalc_zen_settings');
-                if (savedShifts) setShifts(JSON.parse(savedShifts));
-                if (savedSettings) setSettings(JSON.parse(savedSettings));
+                const savedSettings = localStorage.getItem('ot_tracker_settings');
+                if (savedSettings) {
+                    const parsedSettings = JSON.parse(savedSettings);
+                    setSettings(parsedSettings);
+
+                    // If we have an employee name, load their shifts
+                    if (parsedSettings.employeeName) {
+                        const storageKey = getStorageKey(parsedSettings.employeeName);
+                        const savedShifts = localStorage.getItem(storageKey);
+                        if (savedShifts) {
+                            setShifts(JSON.parse(savedShifts));
+                        }
+                    }
+                }
             }, []);
 
-            // Save data
+            // Save settings
             useEffect(() => {
-                localStorage.setItem('otcalc_zen_shifts', JSON.stringify(shifts));
-                localStorage.setItem('otcalc_zen_settings', JSON.stringify(settings));
-            }, [shifts, settings]);
+                if (settings.employeeName) {
+                    localStorage.setItem('ot_tracker_settings', JSON.stringify(settings));
+                }
+            }, [settings]);
+
+            // Save shifts (when employee name exists)
+            useEffect(() => {
+                if (settings.employeeName) {
+                    const storageKey = getStorageKey(settings.employeeName);
+                    localStorage.setItem(storageKey, JSON.stringify(shifts));
+                }
+            }, [shifts, settings.employeeName]);
+
+            const handleUpdateSettings = (newSettings) => {
+                // Check if employee name changed and if we have existing data
+                if (newSettings.employeeName && newSettings.employeeName !== settings.employeeName) {
+                    const storageKey = getStorageKey(newSettings.employeeName);
+                    const existingShifts = localStorage.getItem(storageKey);
+
+                    if (existingShifts) {
+                        // Load existing data
+                        const parsedShifts = JSON.parse(existingShifts);
+                        setShifts(parsedShifts);
+                        setWelcomeMessage(`Welcome back! Loaded ${parsedShifts.length} shift${parsedShifts.length !== 1 ? 's' : ''}.`);
+
+                        // Clear welcome message after 5 seconds
+                        setTimeout(() => setWelcomeMessage(''), 5000);
+                    } else {
+                        // New user
+                        setShifts([]);
+                        setWelcomeMessage('');
+                    }
+                }
+
+                setSettings(newSettings);
+            };
 
             const handleSaveShift = (newShift) => {
                 setShifts([...shifts, newShift]);
@@ -900,11 +976,12 @@
 
                 // Individual Shift Sheets
                 shifts.forEach((shift, idx) => {
+                    const shiftType = shift.shiftType || shift.type; // Support both field names
                     const sheetName = `Shift ${idx + 1} - ${shift.date}`;
                     const ws = workbook.addWorksheet(sheetName);
 
                     ws.getCell('A1').value = `Shift Date: ${shift.date}`;
-                    ws.getCell('A2').value = `Type: ${shift.type}`;
+                    ws.getCell('A2').value = `Type: ${shiftType}`;
                     ws.getCell('A3').value = `Total OT: ${shift.totalOT.toFixed(2)}h`;
                     ws.getCell('A4').value = `Total SB: ${shift.totalSB.toFixed(2)}h`;
 
@@ -943,8 +1020,9 @@
                             settings={settings}
                             onNewShift={() => setView('wizard')}
                             onDeleteShift={handleDeleteShift}
-                            onUpdateSettings={setSettings}
+                            onUpdateSettings={handleUpdateSettings}
                             onExport={handleExport}
+                            welcomeMessage={welcomeMessage}
                         />
                     ) : (
                         <ShiftWizard
