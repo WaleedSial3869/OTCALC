@@ -385,13 +385,85 @@
             const callOT = calls * 0.25;
             const totalOT = Math.min(emailOT + callOT, 1.0);
             const sbHours = 1.0 - totalOT;
-            return { 
-                ot: Math.round(totalOT * 100) / 100, 
-                sb: Math.round(sbHours * 100) / 100 
+            return {
+                ot: Math.round(totalOT * 100) / 100,
+                sb: Math.round(sbHours * 100) / 100
             };
         };
 
-        const calculateBlockTotals = (emailData, startIdx, endIdx, blockOverride = { manualOT: 0, reason: '' }) => {
+        /**
+         * Helper: Calculate block date based on shift start date and days offset
+         */
+        const calculateBlockDate = (shiftDate, daysOffset) => {
+            if (!shiftDate) return '';
+            const date = new Date(shiftDate + 'T12:00:00');
+            date.setDate(date.getDate() + daysOffset);
+            return date.toISOString().split('T')[0];
+        };
+
+        /**
+         * Generates block structure for custom shifts
+         * @param {number} totalHours - Total shift duration (1-168)
+         * @param {string} startTime - Shift start time (HH:MM format)
+         * @param {string} shiftDate - Shift date (YYYY-MM-DD)
+         * @returns {Array} Array of block metadata objects
+         */
+        const calculateCustomBlocks = (totalHours, startTime = '00:00', shiftDate = '') => {
+            const fullBlocks = Math.floor(totalHours / 8);
+            const remainingHours = totalHours % 8;
+            const blocks = [];
+
+            const [startHour, startMin] = startTime.split(':').map(Number);
+
+            // Generate full 8-hour blocks
+            for (let i = 0; i < fullBlocks; i++) {
+                const hoursIntoShift = i * 8;
+                const blockStartHour = startHour + hoursIntoShift;
+                const blockEndHour = blockStartHour + 8;
+
+                // Calculate which day this block falls on
+                const daysOffset = Math.floor(blockStartHour / 24);
+                const blockStartHourMod = blockStartHour % 24;
+                const blockEndHourMod = blockEndHour % 24;
+
+                blocks.push({
+                    name: `Block ${i + 1}`,
+                    timeRange: `${String(blockStartHourMod).padStart(2, '0')}:00-${String(blockEndHourMod).padStart(2, '0')}:00`,
+                    hours: 8,
+                    startSlotIndex: i * 8,
+                    endSlotIndex: (i + 1) * 8,
+                    isPartial: false,
+                    daysOffset: daysOffset,
+                    blockDate: calculateBlockDate(shiftDate, daysOffset)
+                });
+            }
+
+            // Add partial final block if needed
+            if (remainingHours > 0) {
+                const hoursIntoShift = fullBlocks * 8;
+                const blockStartHour = startHour + hoursIntoShift;
+                const blockEndHour = blockStartHour + remainingHours;
+
+                const daysOffset = Math.floor(blockStartHour / 24);
+                const blockStartHourMod = blockStartHour % 24;
+                const blockEndHourMod = blockEndHour % 24;
+
+                blocks.push({
+                    name: `Block ${fullBlocks + 1}`,
+                    timeRange: `${String(blockStartHourMod).padStart(2, '0')}:00-${String(blockEndHourMod).padStart(2, '0')}:00`,
+                    hours: remainingHours,
+                    startSlotIndex: fullBlocks * 8,
+                    endSlotIndex: fullBlocks * 8 + remainingHours,
+                    isPartial: true,
+                    daysOffset: daysOffset,
+                    blockDate: calculateBlockDate(shiftDate, daysOffset)
+                });
+            }
+
+            return blocks;
+        };
+
+        const calculateBlockTotals = (emailData, startIdx, endIdx, blockOverride = { manualOT: 0, reason: '' }, blockHours = 8) => {
             let totalActionable = 0;
             let totalEmails = 0;
             let totalCalls = 0;
@@ -404,11 +476,11 @@
             
             const emailBasedOT = totalActionable * 0.25;
             const callBasedOT = totalCalls * 0.25;
-            const workloadOT = Math.min(emailBasedOT + callBasedOT, 8.0);
+            const workloadOT = Math.min(emailBasedOT + callBasedOT, blockHours); // Use blockHours cap
             const manualOverrideOT = blockOverride.manualOT || 0;
-            const totalBlockOT = Math.min(workloadOT + manualOverrideOT, 8.0);
-            const blockSB = 8.0 - totalBlockOT;
-            
+            const totalBlockOT = Math.min(workloadOT + manualOverrideOT, blockHours); // Use blockHours cap
+            const blockSB = blockHours - totalBlockOT; // Use blockHours for SB calculation
+
             return {
                 totalActionable,
                 totalEmails,
@@ -419,6 +491,7 @@
                 manualOverrideOT: Math.round(manualOverrideOT * 100) / 100,
                 totalBlockOT: Math.round(totalBlockOT * 100) / 100,
                 blockSB: Math.round(blockSB * 100) / 100,
+                blockHours: blockHours, // NEW: Track block size
                 overrideReason: blockOverride.reason || '',
                 hasOverride: manualOverrideOT > 0
             };
@@ -643,14 +716,14 @@
                     blocks.push({
                         name: 'Evening',
                         timeRange: '16:00-23:59',
-                        ...calculateBlockTotals(emailData, 0, 8, blockOverrides[0]),
+                        ...calculateBlockTotals(emailData, 0, 8, blockOverrides[0], 8),
                         code: getOvertimeCode(shiftDate, userSettings.statHolidays)
                     });
-                    
+
                     blocks.push({
                         name: 'Morning',
                         timeRange: '00:00-08:00',
-                        ...calculateBlockTotals(emailData, 8, 16, blockOverrides[1]),
+                        ...calculateBlockTotals(emailData, 8, 16, blockOverrides[1], 8),
                         code: getOvertimeCode(shiftDate, userSettings.statHolidays)
                     });
                 } else if (shiftType === 'stat_holiday') {
@@ -658,24 +731,24 @@
                     blocks.push({
                         name: 'Block 1',
                         timeRange: '00:00-08:00',
-                        ...calculateBlockTotals(emailData, 0, 8, blockOverrides[0]),
+                        ...calculateBlockTotals(emailData, 0, 8, blockOverrides[0], 8),
                         code: '263'
                     });
-                    
+
                     blocks.push({
                         name: 'Block 2',
                         timeRange: '08:00-16:00',
-                        ...calculateBlockTotals(emailData, 8, 16, blockOverrides[1]),
+                        ...calculateBlockTotals(emailData, 8, 16, blockOverrides[1], 8),
                         code: '263'
                     });
-                    
+
                     blocks.push({
                         name: 'Block 3',
                         timeRange: '16:00-00:00',
-                        ...calculateBlockTotals(emailData, 16, 24, blockOverrides[2]),
+                        ...calculateBlockTotals(emailData, 16, 24, blockOverrides[2], 8),
                         code: '263'
                     });
-                } else {
+                } else if (shiftType === 'weekend') {
                     // Weekend shift
                     const blockNames = [
                         { name: 'Friday Evening', range: '16:00-23:59', start: 0 },
@@ -687,13 +760,33 @@
                         { name: 'Sunday Evening', range: '16:00-23:59', start: 48 },
                         { name: 'Monday Morning', range: '00:00-08:00', start: 56 }
                     ];
-                    
+
                     blockNames.forEach((block, idx) => {
                         blocks.push({
                             name: block.name,
                             timeRange: block.range,
-                            ...calculateBlockTotals(emailData, block.start, block.start + 8, blockOverrides[idx]),
+                            ...calculateBlockTotals(emailData, block.start, block.start + 8, blockOverrides[idx], 8),
                             code: getWeekendBlockCode(idx)
+                        });
+                    });
+                } else if (shiftType === 'custom') {
+                    // Custom shift logic
+                    const customBlocks = calculateCustomBlocks(customShiftHours, customShiftStart, shiftDate);
+
+                    customBlocks.forEach((blockMeta, idx) => {
+                        blocks.push({
+                            name: blockMeta.name,
+                            timeRange: blockMeta.timeRange,
+                            ...calculateBlockTotals(
+                                emailData,
+                                blockMeta.startSlotIndex,
+                                blockMeta.endSlotIndex,
+                                blockOverrides[idx] || { manualOT: 0, reason: '' },
+                                blockMeta.hours // Pass actual block hours (8 or less)
+                            ),
+                            code: getOvertimeCode(blockMeta.blockDate, userSettings.statHolidays),
+                            isPartial: blockMeta.isPartial,
+                            blockDate: blockMeta.blockDate
                         });
                     });
                 }
