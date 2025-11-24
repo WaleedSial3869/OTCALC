@@ -409,10 +409,10 @@
             );
         };
 
-        const Dashboard = ({ shifts, settings, onNewShift, onEditShift, onDeleteShift, onUpdateSettings, onExport, welcomeMessage, selectedMonth, onMonthChange }) => {
+        const Dashboard = ({ shifts, settings, onNewShift, onEditShift, onDeleteShift, onCompleteDraft, onUpdateSettings, onExport, welcomeMessage, selectedMonth, onMonthChange }) => {
             const [showSettings, setShowSettings] = useState(false);
 
-            // Filter shifts for selected month
+            // Filter shifts for selected month and separate drafts
             const filteredShifts = useMemo(() => {
                 return shifts.filter(shift => {
                     const shiftDate = new Date(shift.date + 'T12:00:00');
@@ -421,8 +421,11 @@
                 });
             }, [shifts, selectedMonth]);
 
-            const totalOT = filteredShifts.reduce((sum, s) => sum + s.totalOT, 0);
-            const totalShifts = filteredShifts.length;
+            const completedShifts = filteredShifts.filter(s => !s.isDraft);
+            const draftShifts = filteredShifts.filter(s => s.isDraft);
+
+            const totalOT = completedShifts.reduce((sum, s) => sum + s.totalOT, 0);
+            const totalShifts = completedShifts.length;
 
             // Format month display
             const [year, month] = selectedMonth.split('-');
@@ -551,16 +554,84 @@
                         </button>
                     </div>
 
-                    {/* Recent Shifts List */}
+                    {/* Draft Shifts Section */}
+                    {draftShifts.length > 0 && (
+                        <div className="space-y-3">
+                            <h3 className="text-lg font-bold text-amber-800 px-1 flex items-center gap-2">
+                                <span>📝 Draft Shifts</span>
+                                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-bold">{draftShifts.length}</span>
+                            </h3>
+                            {draftShifts.slice().reverse().map(shift => {
+                                const shiftType = shift.shiftType || shift.type;
+                                const isCrossMonth = detectCrossMonth(
+                                    shift.date,
+                                    shiftType,
+                                    shift.customStartTime || shift.regularShiftStart || '00:00',
+                                    shift.customShiftEnd || shift.regularShiftEnd || '08:00'
+                                );
+
+                                return (
+                                    <div key={shift.id} className="bg-amber-50 border-2 border-amber-200 p-4 rounded-xl shadow-sm flex justify-between items-center transition-colors">
+                                        <div className="flex items-center gap-4">
+                                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-lg font-bold shadow-sm relative bg-amber-100 text-amber-700`}>
+                                                {shift.date.split('-')[2]}
+                                                {isCrossMonth && (
+                                                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-orange-500 rounded-full flex items-center justify-center text-white text-xs">⚠</span>
+                                                )}
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-bold text-amber-900 capitalize text-sm sm:text-base">{shiftType.replace('_', ' ')}</span>
+                                                    <span className="text-xs bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-bold">DRAFT</span>
+                                                    {isCrossMonth && (
+                                                        <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">Cross-month</span>
+                                                    )}
+                                                </div>
+                                                <div className="text-xs text-amber-700 flex gap-2 font-medium mt-0.5">
+                                                    <span className="bg-amber-100 px-1.5 py-0.5 rounded">OT: {shift.totalOT.toFixed(2)}h</span>
+                                                    <span className="bg-amber-100 px-1.5 py-0.5 rounded">SB: {shift.totalSB.toFixed(2)}h</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                            <button
+                                                onClick={() => onCompleteDraft(shift.id)}
+                                                className="text-green-600 hover:text-green-700 px-3 py-2 rounded-lg hover:bg-green-50 transition-colors text-xs font-bold"
+                                                title="Complete draft"
+                                            >
+                                                ✓ Complete
+                                            </button>
+                                            <button
+                                                onClick={() => onEditShift(shift)}
+                                                className="text-amber-600 hover:text-amber-700 p-3 rounded-xl hover:bg-amber-100 transition-colors"
+                                                aria-label="Edit draft"
+                                            >
+                                                <Edit />
+                                            </button>
+                                            <button
+                                                onClick={() => onDeleteShift(shift.id)}
+                                                className="text-amber-400 hover:text-red-500 p-3 rounded-xl hover:bg-red-50 transition-colors"
+                                                aria-label="Delete draft"
+                                            >
+                                                <Trash />
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+
+                    {/* Completed Shifts List */}
                     <div className="space-y-3">
-                        <h3 className="text-lg font-bold text-gray-800 px-1">Shifts This Month</h3>
-                        {filteredShifts.length === 0 ? (
+                        <h3 className="text-lg font-bold text-gray-800 px-1">Completed Shifts</h3>
+                        {completedShifts.length === 0 ? (
                             <div className="text-center py-12 text-gray-400 bg-white rounded-2xl border-2 border-dashed border-gray-200">
                                 <p>No shifts logged this month.</p>
                                 <p className="text-sm mt-1 opacity-70">Tap "New Shift" to start tracking.</p>
                             </div>
                         ) : (
-                            filteredShifts.slice().reverse().map(shift => {
+                            completedShifts.slice().reverse().map(shift => {
                                 const shiftType = shift.shiftType || shift.type; // Support both field names
                                 const isCrossMonth = detectCrossMonth(
                                     shift.date,
@@ -815,7 +886,7 @@
                 return { totalOT, totalSB };
             };
 
-            const handleSave = () => {
+            const handleSave = (saveAsDraft = false) => {
                 const blocks = calculateBlocks();
                 const { totalOT, totalSB } = calculateTotalPreview();
                 const timeSlots = generateTimeSlots(type, customStart, customEnd);
@@ -840,8 +911,8 @@
                     notes: '',
                     totalOT: parseFloat(totalOT.toFixed(2)),
                     totalSB: parseFloat(totalSB.toFixed(2)),
-                    isDraft: false,
-                    draftSavedAt: null
+                    isDraft: saveAsDraft,
+                    draftSavedAt: saveAsDraft ? new Date().toISOString() : null
                 };
                 onSave(shiftData, isEditMode);
             };
@@ -1170,12 +1241,20 @@
                                 <div className="text-xl font-extrabold text-purple-700">{totalSB.toFixed(2)}h</div>
                             </div>
                         </div>
-                        <button
-                            onClick={handleSave}
-                            className="w-full bg-green-600 hover:bg-green-700 active:scale-95 transition-all text-white py-4 rounded-xl font-bold shadow-lg shadow-green-200 flex items-center justify-center gap-2 text-lg"
-                        >
-                            <Check /> Finish & Save
-                        </button>
+                        <div className="grid grid-cols-2 gap-3">
+                            <button
+                                onClick={() => handleSave(true)}
+                                className="bg-amber-500 hover:bg-amber-600 active:scale-95 transition-all text-white py-4 rounded-xl font-bold shadow-lg shadow-amber-200 flex items-center justify-center gap-2 text-sm"
+                            >
+                                💾 Save Draft
+                            </button>
+                            <button
+                                onClick={() => handleSave(false)}
+                                className="bg-green-600 hover:bg-green-700 active:scale-95 transition-all text-white py-4 rounded-xl font-bold shadow-lg shadow-green-200 flex items-center justify-center gap-2 text-sm"
+                            >
+                                <Check /> Finish & Save
+                            </button>
+                        </div>
                     </div>
                 </div>
             );
@@ -1277,6 +1356,16 @@
                 setView('dashboard');
             };
 
+            const handleCompleteDraft = (id) => {
+                if (confirm('Mark this draft as completed?')) {
+                    setShifts(shifts.map(s =>
+                        s.id === id
+                            ? { ...s, isDraft: false, draftSavedAt: null }
+                            : s
+                    ));
+                }
+            };
+
             const handleDeleteShift = (id) => {
                 if(confirm('Delete this shift?')) {
                     setShifts(shifts.filter(s => s.id !== id));
@@ -1284,7 +1373,9 @@
             };
 
             const handleExport = async () => {
-                if (!shifts.length) return;
+                // Exclude drafts from export
+                const exportableShifts = shifts.filter(s => !s.isDraft);
+                if (!exportableShifts.length) return;
 
                 const workbook = new ExcelJS.Workbook();
                 workbook.creator = 'OTCALC Zen Enhanced';
@@ -1302,18 +1393,18 @@
                 summarySheet.getCell('A2').value = `Employee: ${settings.employeeName}`;
                 summarySheet.getCell('A2').font = { bold: true };
 
-                const totalOT = shifts.reduce((sum, s) => sum + s.totalOT, 0);
-                const totalSB = shifts.reduce((sum, s) => sum + s.totalSB, 0);
+                const totalOT = exportableShifts.reduce((sum, s) => sum + s.totalOT, 0);
+                const totalSB = exportableShifts.reduce((sum, s) => sum + s.totalSB, 0);
 
                 summarySheet.getCell('A4').value = 'Total Shifts:';
-                summarySheet.getCell('B4').value = shifts.length;
+                summarySheet.getCell('B4').value = exportableShifts.length;
                 summarySheet.getCell('A5').value = 'Total OT Hours:';
                 summarySheet.getCell('B5').value = totalOT.toFixed(2);
                 summarySheet.getCell('A6').value = 'Total SB Hours:';
                 summarySheet.getCell('B6').value = totalSB.toFixed(2);
 
-                // Individual Shift Sheets
-                shifts.forEach((shift, idx) => {
+                // Individual Shift Sheets (exclude drafts)
+                exportableShifts.forEach((shift, idx) => {
                     const shiftType = shift.shiftType || shift.type; // Support both field names
                     const sheetName = `Shift ${idx + 1} - ${shift.date}`;
                     const ws = workbook.addWorksheet(sheetName);
@@ -1362,6 +1453,7 @@
                             }}
                             onEditShift={handleEditShift}
                             onDeleteShift={handleDeleteShift}
+                            onCompleteDraft={handleCompleteDraft}
                             onUpdateSettings={handleUpdateSettings}
                             onExport={handleExport}
                             welcomeMessage={welcomeMessage}
