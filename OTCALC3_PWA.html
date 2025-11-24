@@ -247,12 +247,76 @@
         );
 
         // Helper functions (all unchanged)
+        // Block color classes for custom shifts (Tailwind-safe static classes)
+        const BLOCK_COLOR_CLASSES = [
+            'bg-indigo-50 text-indigo-700 border-2 border-indigo-300 hover:bg-indigo-100',
+            'bg-purple-50 text-purple-700 border-2 border-purple-300 hover:bg-purple-100',
+            'bg-pink-50 text-pink-700 border-2 border-pink-300 hover:bg-pink-100',
+            'bg-blue-50 text-blue-700 border-2 border-blue-300 hover:bg-blue-100',
+            'bg-green-50 text-green-700 border-2 border-green-300 hover:bg-green-100',
+            'bg-yellow-50 text-yellow-700 border-2 border-yellow-300 hover:bg-yellow-100',
+            'bg-orange-50 text-orange-700 border-2 border-orange-300 hover:bg-orange-100',
+            'bg-red-50 text-red-700 border-2 border-red-300 hover:bg-red-100',
+            'bg-teal-50 text-teal-700 border-2 border-teal-300 hover:bg-teal-100',
+            'bg-cyan-50 text-cyan-700 border-2 border-cyan-300 hover:bg-cyan-100',
+            'bg-lime-50 text-lime-700 border-2 border-lime-300 hover:bg-lime-100',
+            'bg-emerald-50 text-emerald-700 border-2 border-emerald-300 hover:bg-emerald-100',
+            'bg-sky-50 text-sky-700 border-2 border-sky-300 hover:bg-sky-100',
+            'bg-violet-50 text-violet-700 border-2 border-violet-300 hover:bg-violet-100',
+            'bg-fuchsia-50 text-fuchsia-700 border-2 border-fuchsia-300 hover:bg-fuchsia-100',
+            'bg-rose-50 text-rose-700 border-2 border-rose-300 hover:bg-rose-100',
+            'bg-amber-50 text-amber-700 border-2 border-amber-300 hover:bg-amber-100',
+            'bg-slate-50 text-slate-700 border-2 border-slate-300 hover:bg-slate-100',
+            'bg-gray-50 text-gray-700 border-2 border-gray-300 hover:bg-gray-100',
+            'bg-zinc-50 text-zinc-700 border-2 border-zinc-300 hover:bg-zinc-100',
+            'bg-stone-50 text-stone-700 border-2 border-stone-300 hover:bg-stone-100'
+        ];
+
         function getCurrentMonth() {
             const now = new Date();
             return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
         }
 
-        const generateTimeSlots = (shiftType) => {
+        // Helper: Calculate hours between start and end times (with wraparound)
+        const calculateHoursBetween = (startTime, endTime) => {
+            const [startHour, startMin] = startTime.split(':').map(Number);
+            const [endHour, endMin] = endTime.split(':').map(Number);
+            const startMinutes = startHour * 60 + startMin;
+            const endMinutes = endHour * 60 + endMin;
+
+            let diffMinutes = endMinutes - startMinutes;
+            if (diffMinutes <= 0) {
+                diffMinutes += 24 * 60; // Add 24 hours if end is before start (next day)
+            }
+
+            return Math.ceil(diffMinutes / 60); // Round up to nearest hour
+        };
+
+        const generateTimeSlots = (shiftType, customStart = '00:00', customEnd = '08:00') => {
+            // Handle custom shifts
+            if (shiftType === 'custom') {
+                const customHours = calculateHoursBetween(customStart, customEnd);
+                const slots = [];
+                const [startHour, startMin] = customStart.split(':').map(Number);
+
+                for (let i = 0; i < customHours; i++) {
+                    // Calculate current time slot maintaining minutes
+                    const currentTotalMinutes = startHour * 60 + startMin + (i * 60);
+                    const nextTotalMinutes = currentTotalMinutes + 60;
+
+                    const currentHour = Math.floor((currentTotalMinutes / 60)) % 24;
+                    const currentMin = currentTotalMinutes % 60;
+                    const nextHour = Math.floor((nextTotalMinutes / 60)) % 24;
+                    const nextMin = nextTotalMinutes % 60;
+
+                    const start = `${String(currentHour).padStart(2, '0')}:${String(currentMin).padStart(2, '0')}`;
+                    const end = `${String(nextHour).padStart(2, '0')}:${String(nextMin).padStart(2, '0')}`;
+                    slots.push(`${start}-${end}`);
+                }
+                return slots;
+            }
+
+            // Existing logic for other shift types
             if (shiftType === 'weekday') {
                 return [
                     '16:00-17:00', '17:00-18:00', '18:00-19:00', '19:00-20:00',
@@ -344,13 +408,98 @@
             const callOT = calls * 0.25;
             const totalOT = Math.min(emailOT + callOT, 1.0);
             const sbHours = 1.0 - totalOT;
-            return { 
-                ot: Math.round(totalOT * 100) / 100, 
-                sb: Math.round(sbHours * 100) / 100 
+            return {
+                ot: Math.round(totalOT * 100) / 100,
+                sb: Math.round(sbHours * 100) / 100
             };
         };
 
-        const calculateBlockTotals = (emailData, startIdx, endIdx, blockOverride = { manualOT: 0, reason: '' }) => {
+        /**
+         * Helper: Calculate block date based on shift start date and days offset
+         */
+        const calculateBlockDate = (shiftDate, daysOffset) => {
+            if (!shiftDate) return '';
+            const date = new Date(shiftDate + 'T12:00:00');
+            date.setDate(date.getDate() + daysOffset);
+            return date.toISOString().split('T')[0];
+        };
+
+        /**
+         * Generates block structure for custom shifts
+         * @param {string} startTime - Shift start time (HH:MM format)
+         * @param {string} endTime - Shift end time (HH:MM format)
+         * @param {string} shiftDate - Shift date (YYYY-MM-DD)
+         * @returns {Array} Array of block metadata objects
+         */
+        const calculateCustomBlocks = (startTime = '00:00', endTime = '08:00', shiftDate = '') => {
+            const totalHours = calculateHoursBetween(startTime, endTime);
+            const fullBlocks = Math.floor(totalHours / 8);
+            const remainingHours = totalHours % 8;
+            const blocks = [];
+
+            const [startHour, startMin] = startTime.split(':').map(Number);
+
+            // Generate full 8-hour blocks
+            for (let i = 0; i < fullBlocks; i++) {
+                // Calculate start time in total minutes
+                const blockStartMinutes = startHour * 60 + startMin + (i * 8 * 60);
+                const blockEndMinutes = blockStartMinutes + (8 * 60);
+
+                // Convert back to hours and minutes
+                const blockStartH = Math.floor(blockStartMinutes / 60);
+                const blockStartM = blockStartMinutes % 60;
+                const blockEndH = Math.floor(blockEndMinutes / 60);
+                const blockEndM = blockEndMinutes % 60;
+
+                // Calculate which day this block falls on
+                const daysOffset = Math.floor(blockStartH / 24);
+                const blockStartHourMod = blockStartH % 24;
+                const blockEndHourMod = blockEndH % 24;
+
+                blocks.push({
+                    name: `Block ${i + 1}`,
+                    timeRange: `${String(blockStartHourMod).padStart(2, '0')}:${String(blockStartM).padStart(2, '0')}-${String(blockEndHourMod).padStart(2, '0')}:${String(blockEndM).padStart(2, '0')}`,
+                    hours: 8,
+                    startSlotIndex: i * 8,
+                    endSlotIndex: (i + 1) * 8,
+                    isPartial: false,
+                    daysOffset: daysOffset,
+                    blockDate: calculateBlockDate(shiftDate, daysOffset)
+                });
+            }
+
+            // Add partial final block if needed
+            if (remainingHours > 0) {
+                // Calculate start time in total minutes
+                const blockStartMinutes = startHour * 60 + startMin + (fullBlocks * 8 * 60);
+                const blockEndMinutes = blockStartMinutes + (remainingHours * 60);
+
+                // Convert back to hours and minutes
+                const blockStartH = Math.floor(blockStartMinutes / 60);
+                const blockStartM = blockStartMinutes % 60;
+                const blockEndH = Math.floor(blockEndMinutes / 60);
+                const blockEndM = blockEndMinutes % 60;
+
+                const daysOffset = Math.floor(blockStartH / 24);
+                const blockStartHourMod = blockStartH % 24;
+                const blockEndHourMod = blockEndH % 24;
+
+                blocks.push({
+                    name: `Block ${fullBlocks + 1}`,
+                    timeRange: `${String(blockStartHourMod).padStart(2, '0')}:${String(blockStartM).padStart(2, '0')}-${String(blockEndHourMod).padStart(2, '0')}:${String(blockEndM).padStart(2, '0')}`,
+                    hours: remainingHours,
+                    startSlotIndex: fullBlocks * 8,
+                    endSlotIndex: fullBlocks * 8 + remainingHours,
+                    isPartial: true,
+                    daysOffset: daysOffset,
+                    blockDate: calculateBlockDate(shiftDate, daysOffset)
+                });
+            }
+
+            return blocks;
+        };
+
+        const calculateBlockTotals = (emailData, startIdx, endIdx, blockOverride = { manualOT: 0, reason: '' }, blockHours = 8) => {
             let totalActionable = 0;
             let totalEmails = 0;
             let totalCalls = 0;
@@ -363,11 +512,11 @@
             
             const emailBasedOT = totalActionable * 0.25;
             const callBasedOT = totalCalls * 0.25;
-            const workloadOT = Math.min(emailBasedOT + callBasedOT, 8.0);
+            const workloadOT = Math.min(emailBasedOT + callBasedOT, blockHours); // Use blockHours cap
             const manualOverrideOT = blockOverride.manualOT || 0;
-            const totalBlockOT = Math.min(workloadOT + manualOverrideOT, 8.0);
-            const blockSB = 8.0 - totalBlockOT;
-            
+            const totalBlockOT = Math.min(workloadOT + manualOverrideOT, blockHours); // Use blockHours cap
+            const blockSB = blockHours - totalBlockOT; // Use blockHours for SB calculation
+
             return {
                 totalActionable,
                 totalEmails,
@@ -378,6 +527,7 @@
                 manualOverrideOT: Math.round(manualOverrideOT * 100) / 100,
                 totalBlockOT: Math.round(totalBlockOT * 100) / 100,
                 blockSB: Math.round(blockSB * 100) / 100,
+                blockHours: blockHours, // NEW: Track block size
                 overrideReason: blockOverride.reason || '',
                 hasOverride: manualOverrideOT > 0
             };
@@ -463,6 +613,10 @@
             const [shiftType, setShiftType] = useState('weekday');
             const [regularShiftStart, setRegularShiftStart] = useState('16:00');
             const [regularShiftEnd, setRegularShiftEnd] = useState('00:00');
+
+            // NEW: Custom shift end time
+            const [customShiftEnd, setCustomShiftEnd] = useState('08:00'); // Default end time
+
             const [emailData, setEmailData] = useState(Array(16).fill().map(() => ({ 
                 total: 0, 
                 actionable: 0, 
@@ -503,23 +657,27 @@
 
             useEffect(() => {
                 let newSize, numBlocks;
-                
+
                 if (shiftType === 'weekday') {
                     newSize = 16;
                     numBlocks = 2;
                 } else if (shiftType === 'stat_holiday') {
                     newSize = 24;
                     numBlocks = 3;
+                } else if (shiftType === 'custom') {
+                    const customHours = calculateHoursBetween(regularShiftStart, customShiftEnd);
+                    newSize = customHours;  // Custom: Calculate hours from start/end
+                    numBlocks = Math.ceil(customHours / 8);  // Custom: Dynamic block count
                 } else { // weekend
                     newSize = 64;
                     numBlocks = 8;
                 }
-                
-                setEmailData(Array(newSize).fill().map(() => ({ 
-                    total: 0, 
-                    actionable: 0, 
+
+                setEmailData(Array(newSize).fill().map(() => ({
+                    total: 0,
+                    actionable: 0,
                     calls: 0,
-                    comment: '' 
+                    comment: ''
                 })));
 
                 const newOverrides = {};
@@ -527,16 +685,16 @@
                     newOverrides[i] = { manualOT: 0, reason: '' };
                 }
                 setBlockOverrides(newOverrides);
-                
+
                 // Reset open override cards
                 setOpenOverrideCards({});
-                
+
                 // Update shift times for stat holidays
                 if (shiftType === 'stat_holiday') {
                     setRegularShiftStart('00:00');
                     setRegularShiftEnd('00:00');
                 }
-            }, [shiftType]);
+            }, [shiftType, regularShiftStart, customShiftEnd]);  // UPDATED: Add custom time dependencies
 
             // Auto-detect stat holidays when date changes
             useEffect(() => {
@@ -597,14 +755,14 @@
                     blocks.push({
                         name: 'Evening',
                         timeRange: '16:00-23:59',
-                        ...calculateBlockTotals(emailData, 0, 8, blockOverrides[0]),
+                        ...calculateBlockTotals(emailData, 0, 8, blockOverrides[0], 8),
                         code: getOvertimeCode(shiftDate, userSettings.statHolidays)
                     });
-                    
+
                     blocks.push({
                         name: 'Morning',
                         timeRange: '00:00-08:00',
-                        ...calculateBlockTotals(emailData, 8, 16, blockOverrides[1]),
+                        ...calculateBlockTotals(emailData, 8, 16, blockOverrides[1], 8),
                         code: getOvertimeCode(shiftDate, userSettings.statHolidays)
                     });
                 } else if (shiftType === 'stat_holiday') {
@@ -612,24 +770,24 @@
                     blocks.push({
                         name: 'Block 1',
                         timeRange: '00:00-08:00',
-                        ...calculateBlockTotals(emailData, 0, 8, blockOverrides[0]),
+                        ...calculateBlockTotals(emailData, 0, 8, blockOverrides[0], 8),
                         code: '263'
                     });
-                    
+
                     blocks.push({
                         name: 'Block 2',
                         timeRange: '08:00-16:00',
-                        ...calculateBlockTotals(emailData, 8, 16, blockOverrides[1]),
+                        ...calculateBlockTotals(emailData, 8, 16, blockOverrides[1], 8),
                         code: '263'
                     });
-                    
+
                     blocks.push({
                         name: 'Block 3',
                         timeRange: '16:00-00:00',
-                        ...calculateBlockTotals(emailData, 16, 24, blockOverrides[2]),
+                        ...calculateBlockTotals(emailData, 16, 24, blockOverrides[2], 8),
                         code: '263'
                     });
-                } else {
+                } else if (shiftType === 'weekend') {
                     // Weekend shift
                     const blockNames = [
                         { name: 'Friday Evening', range: '16:00-23:59', start: 0 },
@@ -641,13 +799,33 @@
                         { name: 'Sunday Evening', range: '16:00-23:59', start: 48 },
                         { name: 'Monday Morning', range: '00:00-08:00', start: 56 }
                     ];
-                    
+
                     blockNames.forEach((block, idx) => {
                         blocks.push({
                             name: block.name,
                             timeRange: block.range,
-                            ...calculateBlockTotals(emailData, block.start, block.start + 8, blockOverrides[idx]),
+                            ...calculateBlockTotals(emailData, block.start, block.start + 8, blockOverrides[idx], 8),
                             code: getWeekendBlockCode(idx)
+                        });
+                    });
+                } else if (shiftType === 'custom') {
+                    // Custom shift logic
+                    const customBlocks = calculateCustomBlocks(regularShiftStart, customShiftEnd, shiftDate);
+
+                    customBlocks.forEach((blockMeta, idx) => {
+                        blocks.push({
+                            name: blockMeta.name,
+                            timeRange: blockMeta.timeRange,
+                            ...calculateBlockTotals(
+                                emailData,
+                                blockMeta.startSlotIndex,
+                                blockMeta.endSlotIndex,
+                                blockOverrides[idx] || { manualOT: 0, reason: '' },
+                                blockMeta.hours // Pass actual block hours (8 or less)
+                            ),
+                            code: getOvertimeCode(blockMeta.blockDate, userSettings.statHolidays),
+                            isPartial: blockMeta.isPartial,
+                            blockDate: blockMeta.blockDate
                         });
                     });
                 }
@@ -672,6 +850,26 @@
                     totalCalls,
                     blocks
                 };
+            };
+
+            // Form data loss protection when switching shift types
+            const handleShiftTypeChange = (newType) => {
+                // Check if there's any data entered
+                const hasData = emailData.some(slot =>
+                    slot.total > 0 || slot.actionable > 0 || slot.calls > 0 || slot.comment.trim().length > 0
+                );
+
+                // If switching away from current type with data, confirm
+                if (hasData && newType !== shiftType) {
+                    const confirmed = window.confirm(
+                        'Changing shift type will reset all entered email/call data and manual overrides. Continue?'
+                    );
+                    if (!confirmed) {
+                        return;  // User cancelled, don't change
+                    }
+                }
+
+                setShiftType(newType);
             };
 
             const handleSaveShift = () => {
@@ -719,12 +917,17 @@
                     shiftType,
                     regularShiftStart,
                     regularShiftEnd,
+                    customShiftEnd,  // NEW: Save custom shift end time
                     emailData: [...emailData],
                     totalOT: shiftTotals.totalOT,
                     totalSB: shiftTotals.totalSB,
                     blocks: shiftTotals.blocks,
                     notes: shiftNotes,
-                    timeSlots: generateTimeSlots(shiftType),
+                    timeSlots: generateTimeSlots(
+                        shiftType,
+                        shiftType === 'custom' ? regularShiftStart : null,
+                        shiftType === 'custom' ? customShiftEnd : null
+                    ),
                     overtimeCode: getOvertimeCode(shiftDate, userSettings.statHolidays),
                     blockOverrides: { ...blockOverrides }
                 };
@@ -1095,12 +1298,16 @@
                         }
                         
                         const date = new Date(shift.date);
-                        const sheetName = `Shift ${shiftIndex + 1} - ${date.getMonth() + 1}-${date.getDate()}`;
+                        const shiftTypeLabel = shift.shiftType === 'weekday' ? 'Weekday'
+                            : shift.shiftType === 'stat_holiday' ? 'StatHol'
+                            : shift.shiftType === 'custom' ? 'Custom'
+                            : 'Weekend';
+                        const sheetName = `Shift ${shiftIndex + 1} - ${date.getMonth() + 1}-${date.getDate()} (${shiftTypeLabel})`;
                         const ws = workbook.addWorksheet(sheetName, {
                             properties: { tabColor: { argb: 'FF4472C4' } }
                         });
 
-                        ws.mergeCells('A1:J1');
+                        ws.mergeCells('A1:K1');  // UPDATED: K instead of J (Hours column added)
                         const shiftTitle = ws.getCell('A1');
                         shiftTitle.value = `📅 SHIFT DETAIL - ${shift.date}`;
                         shiftTitle.font = { size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -1111,12 +1318,15 @@
                         ws.getCell('A2').value = 'Employee:';
                         ws.getCell('B2').value = employeeName;
                         ws.getCell('A3').value = 'Shift Type:';
-                        const shiftTypeDisplay = shift.shiftType === 'weekday' ? 'Weekday (16 hours)' 
-                            : shift.shiftType === 'stat_holiday' ? 'Stat Holiday (24 hours)' 
+                        const shiftTypeDisplay = shift.shiftType === 'weekday' ? 'Weekday (16 hours)'
+                            : shift.shiftType === 'stat_holiday' ? 'Stat Holiday (24 hours)'
+                            : shift.shiftType === 'custom' ? `Custom (${calculateHoursBetween(shift.regularShiftStart, shift.customShiftEnd || shift.regularShiftEnd)} hours)`
                             : 'Weekend (64 hours)';
                         ws.getCell('B3').value = shiftTypeDisplay;
-                        ws.getCell('A4').value = 'Regular Shift:';
-                        ws.getCell('B4').value = `${shift.regularShiftStart} - ${shift.regularShiftEnd}`;
+                        ws.getCell('A4').value = shift.shiftType === 'custom' ? 'Custom Shift:' : 'Regular Shift:';
+                        ws.getCell('B4').value = shift.shiftType === 'custom'
+                            ? `${shift.regularShiftStart} - ${shift.customShiftEnd || shift.regularShiftEnd}`
+                            : `${shift.regularShiftStart} - ${shift.regularShiftEnd}`;
                         
                         ['A2', 'A3', 'A4'].forEach(cell => {
                             ws.getCell(cell).font = { bold: true };
@@ -1131,7 +1341,7 @@
 
                         ws.addRow([]);
 
-                        ws.mergeCells('A9:J9');
+                        ws.mergeCells('A9:K9');  // UPDATED: K instead of J (Hours column added)
                         ws.getCell('A9').value = 'BLOCK CALCULATIONS';
                         ws.getCell('A9').font = { bold: true, size: 12, color: { argb: 'FFFFFFFF' } };
                         ws.getCell('A9').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } };
@@ -1139,7 +1349,7 @@
                         ws.getRow(9).height = 25;
 
                         const blockHeaderRow = ws.getRow(10);
-                        const blockHeaders = ['Block', 'StartTime', 'EndTime', 'Actionable', 'TotalEmails', 'Email OT', 'Override OT', 'Total OT', 'SB', 'Code'];
+                        const blockHeaders = ['Block', 'Hours', 'StartTime', 'EndTime', 'Actionable', 'TotalEmails', 'Email OT', 'Override OT', 'Total OT', 'SB', 'Code'];
                         blockHeaders.forEach((header, idx) => {
                             const cell = blockHeaderRow.getCell(idx + 1);
                             cell.value = header;
@@ -1153,6 +1363,7 @@
                             const blockRow = ws.getRow(11 + idx);
                             blockRow.values = [
                                 block.name || '',
+                                block.blockHours || 8,  // NEW: Show block hours (8 or partial)
                                 (block.timeRange || '').split('-')[0],
                                 (block.timeRange || '').split('-')[1],
                                 block.totalActionable || 0,
@@ -1180,14 +1391,17 @@
                                         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
                                     }
                                 }
-                                
-                                if (colNumber === 10) {
+
+                                // UPDATED: Code column is now 11 (was 10 before Hours column added)
+                                if (colNumber === 11) {
                                     if (cell.value === '260') {
                                         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
                                     } else if (cell.value === '261') {
                                         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4D6' } };
                                     } else if (cell.value === '262') {
                                         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } };
+                                    } else if (cell.value === '263') {
+                                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE4E1' } };
                                     }
                                     cell.font = { bold: true };
                                 }
@@ -1206,8 +1420,8 @@
                         if (hasOverrides) {
                             const overrideSectionStart = 11 + shift.blocks.length + 1;
                             ws.addRow([]);
-                            
-                            ws.mergeCells(`A${overrideSectionStart}:J${overrideSectionStart}`);
+
+                            ws.mergeCells(`A${overrideSectionStart}:K${overrideSectionStart}`);  // UPDATED: K instead of J (Hours column added)
                             ws.getCell(`A${overrideSectionStart}`).value = '⚠️ OVERTIME OVERRIDES';
                             ws.getCell(`A${overrideSectionStart}`).font = { bold: true, size: 12, color: { argb: 'FFFFFFFF' } };
                             ws.getCell(`A${overrideSectionStart}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF9800' } };
@@ -1299,16 +1513,17 @@
                             ws.addRow(['Shift Notes:', shift.notes]);
                         }
 
-                        ws.getColumn(1).width = 18;
-                        ws.getColumn(2).width = 12;
-                        ws.getColumn(3).width = 12;
-                        ws.getColumn(4).width = 14;
-                        ws.getColumn(5).width = 10;
-                        ws.getColumn(6).width = 12;
-                        ws.getColumn(7).width = 10;
-                        ws.getColumn(8).width = 10;
-                        ws.getColumn(9).width = 10;
-                        ws.getColumn(10).width = 30;
+                        ws.getColumn(1).width = 18;   // Block
+                        ws.getColumn(2).width = 8;    // Hours (NEW)
+                        ws.getColumn(3).width = 12;   // StartTime
+                        ws.getColumn(4).width = 12;   // EndTime
+                        ws.getColumn(5).width = 14;   // Actionable
+                        ws.getColumn(6).width = 10;   // TotalEmails
+                        ws.getColumn(7).width = 12;   // Email OT
+                        ws.getColumn(8).width = 10;   // Override OT
+                        ws.getColumn(9).width = 10;   // Total OT
+                        ws.getColumn(10).width = 10;  // SB
+                        ws.getColumn(11).width = 30;  // Code
                     });
 
                     // All Shifts Detail sheet - keeping identical
@@ -1347,8 +1562,9 @@
                         
                         shift.timeSlots.forEach((slot, idx) => {
                             const hourOTSB = calculateHourlyOTSB(shift.emailData[idx]?.actionable || 0, shift.emailData[idx]?.calls || 0);
-                            const shiftTypeLabel = shift.shiftType === 'weekday' ? 'Weekday' 
-                                : shift.shiftType === 'stat_holiday' ? 'Stat Holiday' 
+                            const shiftTypeLabel = shift.shiftType === 'weekday' ? 'Weekday'
+                                : shift.shiftType === 'stat_holiday' ? 'Stat Holiday'
+                                : shift.shiftType === 'custom' ? 'Custom'
                                 : 'Weekend';
                             const row = allShiftsSheet.getRow(currentRow);
                             row.values = [
@@ -1521,7 +1737,11 @@
                 }
             };
 
-            const currentTimeSlots = generateTimeSlots(shiftType);
+            const currentTimeSlots = generateTimeSlots(
+                shiftType,
+                shiftType === 'custom' ? regularShiftStart : null,
+                shiftType === 'custom' ? customShiftEnd : null
+            );
             const shiftTotals = calculateShiftTotals();
             const monthlyTotals = calculateMonthlyTotals();
 
@@ -1700,8 +1920,8 @@
             };
 
             // CRITICAL FIX: Memoized component with local state for textarea
-            const ExceptionOverrideCard = React.memo(({ 
-                blockIndex, 
+            const ExceptionOverrideCard = React.memo(({
+                blockIndex,
                 blockName,
                 emailBasedOT,
                 overrideHours,
@@ -1709,32 +1929,33 @@
                 isOpen,
                 onToggle,
                 onUpdateHours,
-                onUpdateReason
+                onUpdateReason,
+                blockHours = 8.0  // NEW: Support partial blocks
             }) => {
                 // Local state prevents parent re-renders on every keystroke
                 const [localReason, setLocalReason] = useState(overrideReason);
                 const textareaRef = useRef(null);
-                
+
                 // Sync when prop changes
                 useEffect(() => {
                     setLocalReason(overrideReason);
                 }, [overrideReason]);
-                
+
                 // Handle typing locally
                 const handleReasonChange = (e) => {
                     setLocalReason(e.target.value);
                 };
-                
+
                 // Update parent on blur only
                 const handleReasonBlur = () => {
                     if (localReason !== overrideReason) {
                         onUpdateReason(blockIndex, localReason);
                     }
                 };
-                
-                const maxOverride = 8.0 - emailBasedOT;
+
+                const maxOverride = blockHours - emailBasedOT;  // UPDATED: Use blockHours
                 const totalOT = emailBasedOT + overrideHours;
-                const totalSB = 8.0 - totalOT;
+                const totalSB = blockHours - totalOT;  // UPDATED: Use blockHours
                 
                 return (
                     <div className="mt-4">
@@ -2044,12 +2265,13 @@
                                                 <label className="block text-sm font-medium text-gray-700 mb-1">Shift Type</label>
                                                 <select
                                                     value={shiftType}
-                                                    onChange={(e) => setShiftType(e.target.value)}
+                                                    onChange={(e) => handleShiftTypeChange(e.target.value)}
                                                     className="w-full border border-gray-300 rounded px-3 py-2"
                                                 >
                                                     <option value="weekday">Weekday (16hr: Mon-Thu)</option>
                                                     <option value="weekend">Weekend (64hr: Fri-Mon)</option>
                                                     <option value="stat_holiday">Stat Holiday (24hr: 00:00-00:00)</option>
+                                                    <option value="custom">Custom/Flexible (specify hours)</option>
                                                 </select>
                                                 {shiftType === 'stat_holiday' && (
                                                     <p className="text-xs text-blue-600 mt-1">
@@ -2057,8 +2279,20 @@
                                                     </p>
                                                 )}
                                             </div>
+
+                                            {/* Custom Shift Info */}
+                                            {shiftType === 'custom' && (
+                                                <div className="bg-blue-50 border border-blue-300 p-3 rounded-lg mb-4">
+                                                    <p className="text-sm text-blue-800">
+                                                        ℹ️ Set your start and end times below. Blocks will be generated automatically (8-hour blocks with partial final block if needed).
+                                                    </p>
+                                                </div>
+                                            )}
+
                                             <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1">Regular Shift Start</label>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                    {shiftType === 'custom' ? 'Custom Shift Start' : 'Regular Shift Start'}
+                                                </label>
                                                 <input
                                                     type="time"
                                                     value={regularShiftStart}
@@ -2071,16 +2305,23 @@
                                                 )}
                                             </div>
                                             <div>
-                                                <label className="block text-sm font-medium text-gray-700 mb-1">Regular Shift End</label>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                    {shiftType === 'custom' ? 'Custom Shift End' : 'Regular Shift End'}
+                                                </label>
                                                 <input
                                                     type="time"
-                                                    value={regularShiftEnd}
-                                                    onChange={(e) => setRegularShiftEnd(e.target.value)}
+                                                    value={shiftType === 'custom' ? customShiftEnd : regularShiftEnd}
+                                                    onChange={(e) => shiftType === 'custom' ? setCustomShiftEnd(e.target.value) : setRegularShiftEnd(e.target.value)}
                                                     className="w-full border border-gray-300 rounded px-3 py-2"
                                                     disabled={shiftType === 'stat_holiday'}
                                                 />
                                                 {shiftType === 'stat_holiday' && (
                                                     <p className="text-xs text-gray-500 mt-1">Fixed at 00:00 for stat holidays</p>
+                                                )}
+                                                {shiftType === 'custom' && (
+                                                    <p className="text-xs text-gray-600 mt-1">
+                                                        {calculateHoursBetween(regularShiftStart, customShiftEnd)} hours ({Math.ceil(calculateHoursBetween(regularShiftStart, customShiftEnd) / 8)} blocks)
+                                                    </p>
                                                 )}
                                             </div>
                                         </div>
@@ -2090,8 +2331,9 @@
                                         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                                             <Mail />
                                             Hourly Email Tracking ({
-                                                shiftType === 'weekday' ? '16:00 - 08:00' : 
+                                                shiftType === 'weekday' ? '16:00 - 08:00' :
                                                 shiftType === 'stat_holiday' ? '00:00 - 00:00 (24 hours)' :
+                                                shiftType === 'custom' ? `${regularShiftStart} - ${customShiftEnd} (${calculateHoursBetween(regularShiftStart, customShiftEnd)} hours)` :
                                                 'Fri 16:00 - Mon 08:00'
                                             })
                                         </h3>
@@ -2248,9 +2490,64 @@
                                                     )}
                                                 </div>
                                             </>
+                                        ) : shiftType === 'custom' ? (
+                                            <>
+                                                {(() => {
+                                                    const customBlocks = calculateCustomBlocks(regularShiftStart, customShiftEnd, shiftDate);
+
+                                                    return customBlocks.map((blockMeta, blockIdx) => {
+                                                        const blockKey = `custom-block-${blockIdx}`;
+                                                        const colorClass = BLOCK_COLOR_CLASSES[blockIdx % BLOCK_COLOR_CLASSES.length];
+                                                        const blockData = calculateShiftBlocks()[blockIdx] || {};
+                                                        const otCode = getOvertimeCode(blockMeta.blockDate, userSettings.statHolidays);
+
+                                                        return (
+                                                            <div key={blockIdx} className="mb-4">
+                                                                <button
+                                                                    onClick={() => toggleBlockCollapse(blockKey)}
+                                                                    className={`w-full ${colorClass} px-4 py-2 rounded flex items-center justify-between mb-3`}
+                                                                >
+                                                                    <span className="font-semibold flex items-center gap-2">
+                                                                        {blockMeta.name}: {blockMeta.timeRange}
+                                                                        {blockMeta.isPartial && (
+                                                                            <span className="text-xs bg-yellow-200 text-yellow-800 px-2 py-1 rounded">
+                                                                                ⚠️ {blockMeta.hours}hr
+                                                                            </span>
+                                                                        )}
+                                                                        <span className="text-xs opacity-75">[OT Code: {otCode}]</span>
+                                                                    </span>
+                                                                    {collapsedBlocks[blockKey] ? <ChevronDown /> : <ChevronUp />}
+                                                                </button>
+                                                                {!collapsedBlocks[blockKey] && (
+                                                                    <>
+                                                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                                                                            {currentTimeSlots.slice(blockMeta.startSlotIndex, blockMeta.endSlotIndex).map((slot, idx) =>
+                                                                                renderHourlyBlock(slot, blockMeta.startSlotIndex + idx)
+                                                                            )}
+                                                                        </div>
+
+                                                                        <ExceptionOverrideCard
+                                                                            blockIndex={blockIdx}
+                                                                            blockName={blockMeta.name}
+                                                                            emailBasedOT={blockData.emailBasedOT || 0}
+                                                                            overrideHours={blockOverrides[blockIdx]?.manualOT || 0}
+                                                                            overrideReason={blockOverrides[blockIdx]?.reason || ''}
+                                                                            isOpen={openOverrideCards[blockIdx]}
+                                                                            onToggle={toggleOverrideCard}
+                                                                            onUpdateHours={(idx, val) => updateBlockOverride(idx, 'manualOT', val)}
+                                                                            onUpdateReason={(idx, val) => updateBlockOverride(idx, 'reason', val)}
+                                                                            blockHours={blockMeta.hours}
+                                                                        />
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    });
+                                                })()}
+                                            </>
                                         ) : (
                                             <>
-                                                {['Friday Evening', 'Saturday Morning', 'Saturday Afternoon', 'Saturday Evening', 
+                                                {['Friday Evening', 'Saturday Morning', 'Saturday Afternoon', 'Saturday Evening',
                                                   'Sunday Morning', 'Sunday Afternoon', 'Sunday Evening', 'Monday Morning'].map((blockName, blockIdx) => {
                                                     const startIdx = blockIdx * 8;
                                                     const blockKey = blockName.toLowerCase().replace(' ', '-');
@@ -2412,7 +2709,10 @@
                                                             {hasOverrides && <span className="text-orange-600 text-sm">⚠️ Has Overrides</span>}
                                                         </div>
                                                         <div className="text-sm text-gray-600">
-                                                            {shift.shiftType === 'weekday' ? 'Weekday (16 hours)' : 'Weekend (64 hours)'} - OT Code: {shift.overtimeCode}
+                                                            {shift.shiftType === 'weekday' ? 'Weekday (16 hours)' :
+                                                             shift.shiftType === 'stat_holiday' ? 'Stat Holiday (24 hours)' :
+                                                             shift.shiftType === 'custom' ? `Custom (${calculateHoursBetween(shift.regularShiftStart, shift.customShiftEnd || shift.regularShiftEnd)} hours)` :
+                                                             'Weekend (64 hours)'} - OT Code: {shift.overtimeCode}
                                                         </div>
                                                         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2 text-sm">
                                                             <div><span className="font-medium">OT:</span> {shift.totalOT}h</div>
