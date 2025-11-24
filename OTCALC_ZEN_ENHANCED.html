@@ -479,38 +479,78 @@
                         });
                     });
                 } else if (type === 'weekday') {
+                    // Evening block is on the shift date
+                    const eveningBlockDate = date;
+
+                    // Morning block is on the next day
+                    const morningDate = new Date(date + 'T12:00:00');
+                    morningDate.setDate(morningDate.getDate() + 1);
+                    const morningBlockDate = morningDate.toISOString().split('T')[0];
+
                     blocks.push({
                         name: 'Evening Block',
                         timeRange: '16:00-00:00',
                         ...calculateBlockTotals(0, 8, 8),
-                        code: getOvertimeCode(date, statHolidays)
+                        code: getOvertimeCode(eveningBlockDate, statHolidays),
+                        blockDate: eveningBlockDate
                     });
                     blocks.push({
                         name: 'Morning Block',
                         timeRange: '00:00-08:00',
                         ...calculateBlockTotals(8, 16, 8),
-                        code: getOvertimeCode(date, statHolidays)
+                        code: getOvertimeCode(morningBlockDate, statHolidays),
+                        blockDate: morningBlockDate
                     });
                 } else if (type === 'stat_holiday') {
+                    // All blocks are on the same stat holiday date
                     for (let i = 0; i < 3; i++) {
                         blocks.push({
                             name: `Block ${i + 1}`,
                             timeRange: `${String(i * 8).padStart(2, '0')}:00-${String((i + 1) * 8).padStart(2, '0')}:00`,
                             ...calculateBlockTotals(i * 8, (i + 1) * 8, 8),
-                            code: '263'
+                            code: '263',
+                            blockDate: date
                         });
                     }
                 } else {
-                    // Weekend
+                    // Weekend shift: Friday 16:00 - Monday 08:00 (64 hours, 8 blocks)
+                    // Block distribution:
+                    // - Block 1 (Friday 16:00-00:00): Friday date
+                    // - Blocks 2-4 (Saturday 00:00-00:00): Saturday date
+                    // - Blocks 5-7 (Sunday 00:00-00:00): Sunday date
+                    // - Block 8 (Monday 00:00-08:00): Monday date
+
                     const blockNames = ['Friday Evening', 'Saturday Morning', 'Saturday Afternoon', 'Saturday Evening',
                                       'Sunday Morning', 'Sunday Afternoon', 'Sunday Evening', 'Monday Morning'];
+
+                    const blockTimeRanges = [
+                        '16:00-00:00',  // Friday evening
+                        '00:00-08:00',  // Saturday morning
+                        '08:00-16:00',  // Saturday afternoon
+                        '16:00-00:00',  // Saturday evening
+                        '00:00-08:00',  // Sunday morning
+                        '08:00-16:00',  // Sunday afternoon
+                        '16:00-00:00',  // Sunday evening
+                        '00:00-08:00'   // Monday morning
+                    ];
+
+                    const blockDayOffsets = [0, 1, 1, 1, 2, 2, 2, 3]; // Days after shift start date
+
                     blockNames.forEach((name, i) => {
-                        const otCode = i === 0 ? '261' : i === 7 ? '260' : '262';
+                        // Calculate the actual date for this block
+                        const blockDateObj = new Date(date + 'T12:00:00');
+                        blockDateObj.setDate(blockDateObj.getDate() + blockDayOffsets[i]);
+                        const blockDate = blockDateObj.toISOString().split('T')[0];
+
+                        // Get OT code based on actual date
+                        const otCode = getOvertimeCode(blockDate, statHolidays);
+
                         blocks.push({
                             name,
-                            timeRange: '',
+                            timeRange: blockTimeRanges[i],
                             ...calculateBlockTotals(i * 8, (i + 1) * 8, 8),
-                            code: otCode
+                            code: otCode,
+                            blockDate: blockDate
                         });
                     });
                 }
