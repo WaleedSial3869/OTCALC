@@ -1,0 +1,2500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="PHAC Duty Officer Overtime Calculator - Track and calculate overtime hours for government duty officers">
+    <meta name="theme-color" content="#1F4E78">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="OTCALC3">
+    
+    <title>OTCALC3 - PHAC Overtime Tracker</title>
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>⏰</text></svg>">
+    
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
+    
+    <style>
+        /* Loading splash screen */
+        #splash-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #1F4E78 0%, #2C5F8D 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            transition: opacity 0.5s ease-out;
+        }
+        
+        #splash-screen.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        
+        .splash-logo {
+            color: white;
+            font-size: 80px;
+            margin-bottom: 20px;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        
+        .splash-text {
+            color: white;
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .splash-subtitle {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 16px;
+        }
+        
+        .spinner {
+            margin-top: 30px;
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Install prompt */
+        .install-prompt {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #1F4E78;
+            color: white;
+            padding: 16px 24px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            animation: slideUp 0.3s ease-out;
+        }
+        
+        @keyframes slideUp {
+            from { transform: translateY(100px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        
+        .install-prompt button {
+            background: white;
+            color: #1F4E78;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .install-prompt button:hover {
+            background: #f0f0f0;
+        }
+    </style>
+</head>
+<body>
+    <!-- Splash Screen -->
+    <div id="splash-screen">
+        <div class="splash-logo">⏰</div>
+        <div class="splash-text">OTCALC3</div>
+        <div class="splash-subtitle">PHAC Overtime Calculator</div>
+        <div class="spinner"></div>
+    </div>
+    
+    <div id="root"></div>
+    
+    <!-- PWA Install Prompt (hidden by default) -->
+    <div id="install-prompt" style="display: none;" class="install-prompt">
+        <span>📱 Install OTCALC3 as an app</span>
+        <button id="install-button">Install</button>
+        <button id="dismiss-button" style="background: transparent; color: white;">✕</button>
+    </div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useCallback, useRef } = React;
+
+        // Icons (keeping all existing icons)
+        const Clock = () => (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+        );
+
+        const Mail = () => (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                <polyline points="22,6 12,13 2,6"></polyline>
+            </svg>
+        );
+
+        const Calculator = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="4" y="2" width="16" height="20" rx="2"></rect>
+                <line x1="8" y1="6" x2="16" y2="6"></line>
+            </svg>
+        );
+
+        const Download = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+        );
+
+        const Plus = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+        );
+
+        const Trash = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+        );
+
+        const ChevronDown = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+        );
+
+        const ChevronUp = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="18 15 12 9 6 15"></polyline>
+            </svg>
+        );
+
+        const Save = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                <polyline points="7 3 7 8 15 8"></polyline>
+            </svg>
+        );
+
+        const ClearIcon = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 6h18"></path>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                <line x1="10" y1="11" x2="10" y2="17"></line>
+                <line x1="14" y1="11" x2="14" y2="17"></line>
+            </svg>
+        );
+
+        const User = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+        );
+
+        const AlertTriangle = () => (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                <line x1="12" y1="9" x2="12" y2="13"></line>
+                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+        );
+
+        const Settings = () => (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M12 1v6m0 6v6m0-18l-1.8 1.8m3.6 0L12 1m0 22l-1.8-1.8m3.6 0L12 23M1 12h6m6 0h6M1 12l1.8-1.8m0 3.6L1 12m22 0l-1.8-1.8m0 3.6L23 12"></path>
+                <path d="M19.07 4.93l-2.12 2.12m-9.9 9.9l-2.12 2.12m14.14 0l-2.12-2.12m-9.9-9.9l-2.12-2.12"></path>
+            </svg>
+        );
+
+        const Calendar = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="16" y1="2" x2="16" y2="6"></line>
+                <line x1="8" y1="2" x2="8" y2="6"></line>
+                <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+        );
+
+        // Helper functions (all unchanged)
+        function getCurrentMonth() {
+            const now = new Date();
+            return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        }
+
+        const generateTimeSlots = (shiftType) => {
+            if (shiftType === 'weekday') {
+                return [
+                    '16:00-17:00', '17:00-18:00', '18:00-19:00', '19:00-20:00',
+                    '20:00-21:00', '21:00-22:00', '22:00-23:00', '23:00-00:00',
+                    '00:00-01:00', '01:00-02:00', '02:00-03:00', '03:00-04:00',
+                    '04:00-05:00', '05:00-06:00', '06:00-07:00', '07:00-08:00'
+                ];
+            } else if (shiftType === 'stat_holiday') {
+                // 24-hour stat holiday shift: 00:00 to 00:00 (next day)
+                const slots = [];
+                for (let i = 0; i < 24; i++) {
+                    const start = `${String(i).padStart(2, '0')}:00`;
+                    const end = i === 23 ? '00:00' : `${String(i + 1).padStart(2, '0')}:00`;
+                    slots.push(`${start}-${end}`);
+                }
+                return slots;
+            } else {
+                // Weekend shift (64 hours)
+                const slots = [];
+                for (let i = 16; i < 24; i++) {
+                    const start = `${String(i).padStart(2, '0')}:00`;
+                    const end = i === 23 ? '00:00' : `${String(i + 1).padStart(2, '0')}:00`;
+                    slots.push(`${start}-${end}`);
+                }
+                for (let i = 0; i < 8; i++) {
+                    const start = `${String(i).padStart(2, '0')}:00`;
+                    const end = `${String(i + 1).padStart(2, '0')}:00`;
+                    slots.push(`${start}-${end}`);
+                }
+                for (let i = 8; i < 16; i++) {
+                    const start = `${String(i).padStart(2, '0')}:00`;
+                    const end = `${String(i + 1).padStart(2, '0')}:00`;
+                    slots.push(`${start}-${end}`);
+                }
+                for (let i = 16; i < 24; i++) {
+                    const start = `${String(i).padStart(2, '0')}:00`;
+                    const end = i === 23 ? '00:00' : `${String(i + 1).padStart(2, '0')}:00`;
+                    slots.push(`${start}-${end}`);
+                }
+                for (let i = 0; i < 8; i++) {
+                    const start = `${String(i).padStart(2, '0')}:00`;
+                    const end = `${String(i + 1).padStart(2, '0')}:00`;
+                    slots.push(`${start}-${end}`);
+                }
+                for (let i = 8; i < 16; i++) {
+                    const start = `${String(i).padStart(2, '0')}:00`;
+                    const end = `${String(i + 1).padStart(2, '0')}:00`;
+                    slots.push(`${start}-${end}`);
+                }
+                for (let i = 16; i < 24; i++) {
+                    const start = `${String(i).padStart(2, '0')}:00`;
+                    const end = i === 23 ? '00:00' : `${String(i + 1).padStart(2, '0')}:00`;
+                    slots.push(`${start}-${end}`);
+                }
+                for (let i = 0; i < 8; i++) {
+                    const start = `${String(i).padStart(2, '0')}:00`;
+                    const end = `${String(i + 1).padStart(2, '0')}:00`;
+                    slots.push(`${start}-${end}`);
+                }
+                return slots;
+            }
+        };
+
+        const getOvertimeCode = (shiftDate, statHolidays = []) => {
+            if (!shiftDate) return '260';
+            
+            // Check if this date is a stat holiday
+            if (statHolidays.includes(shiftDate)) {
+                return '263';
+            }
+            
+            const date = new Date(shiftDate + 'T12:00:00');
+            const dayOfWeek = date.getDay();
+            
+            if (dayOfWeek >= 1 && dayOfWeek <= 4) return '260';
+            if (dayOfWeek === 5) return '261';
+            if (dayOfWeek === 0 || dayOfWeek === 6) return '262';
+            return '260';
+        };
+
+        const getWeekendBlockCode = (blockIndex) => {
+            if (blockIndex === 0) return '261';
+            if (blockIndex === 7) return '260';
+            return '262';
+        };
+
+        const calculateHourlyOTSB = (actionableEmails, calls) => {
+            const emailOT = actionableEmails * 0.25;
+            const callOT = calls * 0.25;
+            const totalOT = Math.min(emailOT + callOT, 1.0);
+            const sbHours = 1.0 - totalOT;
+            return { 
+                ot: Math.round(totalOT * 100) / 100, 
+                sb: Math.round(sbHours * 100) / 100 
+            };
+        };
+
+        const calculateBlockTotals = (emailData, startIdx, endIdx, blockOverride = { manualOT: 0, reason: '' }) => {
+            let totalActionable = 0;
+            let totalEmails = 0;
+            let totalCalls = 0;
+            
+            for (let i = startIdx; i < endIdx; i++) {
+                totalActionable += emailData[i]?.actionable || 0;
+                totalEmails += emailData[i]?.total || 0;
+                totalCalls += emailData[i]?.calls || 0;
+            }
+            
+            const emailBasedOT = totalActionable * 0.25;
+            const callBasedOT = totalCalls * 0.25;
+            const workloadOT = Math.min(emailBasedOT + callBasedOT, 8.0);
+            const manualOverrideOT = blockOverride.manualOT || 0;
+            const totalBlockOT = Math.min(workloadOT + manualOverrideOT, 8.0);
+            const blockSB = 8.0 - totalBlockOT;
+            
+            return {
+                totalActionable,
+                totalEmails,
+                totalCalls,
+                emailBasedOT: Math.round(emailBasedOT * 100) / 100,
+                callBasedOT: Math.round(callBasedOT * 100) / 100,
+                workloadOT: Math.round(workloadOT * 100) / 100,
+                manualOverrideOT: Math.round(manualOverrideOT * 100) / 100,
+                totalBlockOT: Math.round(totalBlockOT * 100) / 100,
+                blockSB: Math.round(blockSB * 100) / 100,
+                overrideReason: blockOverride.reason || '',
+                hasOverride: manualOverrideOT > 0
+            };
+        };
+
+        const STORAGE_KEY_PREFIX = 'ot_tracker_';
+
+        const saveToLocalStorage = (employeeName, month, shifts) => {
+            if (!employeeName) return;
+            const storageKey = `${STORAGE_KEY_PREFIX}${employeeName.toLowerCase().replace(/\s+/g, '_')}`;
+            
+            try {
+                const existingData = JSON.parse(localStorage.getItem(storageKey)) || {};
+                existingData[month] = shifts;
+                localStorage.setItem(storageKey, JSON.stringify(existingData));
+                console.log('Data saved to localStorage:', storageKey, month);
+            } catch (error) {
+                console.error('Error saving to localStorage:', error);
+                alert('Failed to save data. Your browser may have storage limits.');
+            }
+        };
+
+        const loadFromLocalStorage = (employeeName, month) => {
+            if (!employeeName) return [];
+            const storageKey = `${STORAGE_KEY_PREFIX}${employeeName.toLowerCase().replace(/\s+/g, '_')}`;
+            
+            try {
+                const data = localStorage.getItem(storageKey);
+                if (data) {
+                    const parsedData = JSON.parse(data);
+                    return parsedData[month] || [];
+                }
+            } catch (error) {
+                console.error('Error loading from localStorage:', error);
+            }
+            return [];
+        };
+
+        // Settings Management Functions
+        const SETTINGS_KEY = 'ot_tracker_settings';
+
+        const saveSettings = (settings) => {
+            try {
+                localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+                console.log('Settings saved:', settings);
+            } catch (error) {
+                console.error('Error saving settings:', error);
+                alert('Failed to save settings.');
+            }
+        };
+
+        const loadSettings = () => {
+            try {
+                const data = localStorage.getItem(SETTINGS_KEY);
+                if (data) {
+                    return JSON.parse(data);
+                }
+            } catch (error) {
+                console.error('Error loading settings:', error);
+            }
+            // Default settings
+            return {
+                statHolidays: []
+            };
+        };
+
+        const isStatHoliday = (date, statHolidays) => {
+            return statHolidays.includes(date);
+        };
+
+        const MonthlyOTTracker = () => {
+            const [employeeName, setEmployeeName] = useState('');
+            const [currentMonth, setCurrentMonth] = useState(getCurrentMonth());
+            const [savedShifts, setSavedShifts] = useState([]);
+            const [showAddNewShift, setShowAddNewShift] = useState(true);
+            const [isDataLoaded, setIsDataLoaded] = useState(false);
+
+            // Settings state
+            const [userSettings, setUserSettings] = useState(loadSettings());
+            const [showSettings, setShowSettings] = useState(false);
+
+            const [shiftDate, setShiftDate] = useState('');
+            const [shiftType, setShiftType] = useState('weekday');
+            const [regularShiftStart, setRegularShiftStart] = useState('16:00');
+            const [regularShiftEnd, setRegularShiftEnd] = useState('00:00');
+            const [emailData, setEmailData] = useState(Array(16).fill().map(() => ({ 
+                total: 0, 
+                actionable: 0, 
+                calls: 0,
+                comment: '' 
+            })));
+            const [shiftNotes, setShiftNotes] = useState('');
+            const [collapsedBlocks, setCollapsedBlocks] = useState({});
+
+            const [blockOverrides, setBlockOverrides] = useState({
+                0: { manualOT: 0, reason: '' },
+                1: { manualOT: 0, reason: '' }
+            });
+
+            // NEW: Track which override cards are open
+            const [openOverrideCards, setOpenOverrideCards] = useState({});
+
+            useEffect(() => {
+                if (employeeName && employeeName.trim().length > 0) {
+                    const loadedShifts = loadFromLocalStorage(employeeName, currentMonth);
+                    setSavedShifts(loadedShifts);
+                    setIsDataLoaded(true);
+                    
+                    if (loadedShifts.length > 0) {
+                        console.log(`Loaded ${loadedShifts.length} shifts for ${employeeName} in ${currentMonth}`);
+                    }
+                } else {
+                    setSavedShifts([]);
+                    setIsDataLoaded(false);
+                }
+            }, [employeeName, currentMonth]);
+
+            useEffect(() => {
+                if (isDataLoaded && employeeName && employeeName.trim().length > 0) {
+                    saveToLocalStorage(employeeName, currentMonth, savedShifts);
+                }
+            }, [savedShifts, employeeName, currentMonth, isDataLoaded]);
+
+            useEffect(() => {
+                let newSize, numBlocks;
+                
+                if (shiftType === 'weekday') {
+                    newSize = 16;
+                    numBlocks = 2;
+                } else if (shiftType === 'stat_holiday') {
+                    newSize = 24;
+                    numBlocks = 3;
+                } else { // weekend
+                    newSize = 64;
+                    numBlocks = 8;
+                }
+                
+                setEmailData(Array(newSize).fill().map(() => ({ 
+                    total: 0, 
+                    actionable: 0, 
+                    calls: 0,
+                    comment: '' 
+                })));
+
+                const newOverrides = {};
+                for (let i = 0; i < numBlocks; i++) {
+                    newOverrides[i] = { manualOT: 0, reason: '' };
+                }
+                setBlockOverrides(newOverrides);
+                
+                // Reset open override cards
+                setOpenOverrideCards({});
+                
+                // Update shift times for stat holidays
+                if (shiftType === 'stat_holiday') {
+                    setRegularShiftStart('00:00');
+                    setRegularShiftEnd('00:00');
+                }
+            }, [shiftType]);
+
+            // Auto-detect stat holidays when date changes
+            useEffect(() => {
+                if (shiftDate) {
+                    const isStatHol = isStatHoliday(shiftDate, userSettings.statHolidays);
+                    
+                    if (isStatHol && shiftType !== 'stat_holiday') {
+                        // Date IS a stat holiday → switch to stat_holiday
+                        setShiftType('stat_holiday');
+                        setRegularShiftStart('00:00');
+                        setRegularShiftEnd('00:00');
+                    } else if (!isStatHol && shiftType === 'stat_holiday') {
+                        // Date is NOT a stat holiday but type is still stat_holiday → revert to appropriate type
+                        const date = new Date(shiftDate + 'T12:00:00');
+                        const dayOfWeek = date.getDay();
+                        
+                        // Determine if it should be weekday or weekend
+                        if (dayOfWeek >= 1 && dayOfWeek <= 4) {
+                            // Monday-Thursday = weekday
+                            setShiftType('weekday');
+                            setRegularShiftStart('16:00');
+                            setRegularShiftEnd('00:00');
+                        } else {
+                            // Friday-Sunday = weekend
+                            setShiftType('weekend');
+                            setRegularShiftStart('16:00');
+                            setRegularShiftEnd('08:00');
+                        }
+                    }
+                }
+            }, [shiftDate, userSettings.statHolidays]);
+
+            const calculateMonthlyTotals = () => {
+                return savedShifts.reduce((acc, shift) => {
+                    acc.totalShifts += 1;
+                    acc.totalOT += shift.totalOT || 0;
+                    acc.totalSB += shift.totalSB || 0;
+                    acc.totalEmails += shift.emailData.reduce((sum, slot) => sum + (slot.total || 0), 0);
+                    acc.totalActionable += shift.emailData.reduce((sum, slot) => sum + (slot.actionable || 0), 0);
+                    acc.totalCalls += shift.emailData.reduce((sum, slot) => sum + (slot.calls || 0), 0);
+                    acc.totalHours += (shift.totalOT || 0) + (shift.totalSB || 0);
+                    return acc;
+                }, { 
+                    totalShifts: 0, 
+                    totalOT: 0, 
+                    totalSB: 0, 
+                    totalEmails: 0, 
+                    totalActionable: 0,
+                    totalCalls: 0,
+                    totalHours: 0 
+                });
+            };
+
+            const calculateShiftBlocks = () => {
+                const blocks = [];
+                
+                if (shiftType === 'weekday') {
+                    blocks.push({
+                        name: 'Evening',
+                        timeRange: '16:00-23:59',
+                        ...calculateBlockTotals(emailData, 0, 8, blockOverrides[0]),
+                        code: getOvertimeCode(shiftDate, userSettings.statHolidays)
+                    });
+                    
+                    blocks.push({
+                        name: 'Morning',
+                        timeRange: '00:00-08:00',
+                        ...calculateBlockTotals(emailData, 8, 16, blockOverrides[1]),
+                        code: getOvertimeCode(shiftDate, userSettings.statHolidays)
+                    });
+                } else if (shiftType === 'stat_holiday') {
+                    // 24-hour stat holiday shift: 3 blocks of 8 hours each
+                    blocks.push({
+                        name: 'Block 1',
+                        timeRange: '00:00-08:00',
+                        ...calculateBlockTotals(emailData, 0, 8, blockOverrides[0]),
+                        code: '263'
+                    });
+                    
+                    blocks.push({
+                        name: 'Block 2',
+                        timeRange: '08:00-16:00',
+                        ...calculateBlockTotals(emailData, 8, 16, blockOverrides[1]),
+                        code: '263'
+                    });
+                    
+                    blocks.push({
+                        name: 'Block 3',
+                        timeRange: '16:00-00:00',
+                        ...calculateBlockTotals(emailData, 16, 24, blockOverrides[2]),
+                        code: '263'
+                    });
+                } else {
+                    // Weekend shift
+                    const blockNames = [
+                        { name: 'Friday Evening', range: '16:00-23:59', start: 0 },
+                        { name: 'Saturday Morning', range: '00:00-08:00', start: 8 },
+                        { name: 'Saturday Afternoon', range: '08:00-16:00', start: 16 },
+                        { name: 'Saturday Evening', range: '16:00-23:59', start: 24 },
+                        { name: 'Sunday Morning', range: '00:00-08:00', start: 32 },
+                        { name: 'Sunday Afternoon', range: '08:00-16:00', start: 40 },
+                        { name: 'Sunday Evening', range: '16:00-23:59', start: 48 },
+                        { name: 'Monday Morning', range: '00:00-08:00', start: 56 }
+                    ];
+                    
+                    blockNames.forEach((block, idx) => {
+                        blocks.push({
+                            name: block.name,
+                            timeRange: block.range,
+                            ...calculateBlockTotals(emailData, block.start, block.start + 8, blockOverrides[idx]),
+                            code: getWeekendBlockCode(idx)
+                        });
+                    });
+                }
+                
+                return blocks;
+            };
+
+            const calculateShiftTotals = () => {
+                const blocks = calculateShiftBlocks();
+                const totalOT = blocks.reduce((sum, block) => sum + (block.totalBlockOT || 0), 0);
+                const totalSB = blocks.reduce((sum, block) => sum + (block.blockSB || 0), 0);
+                const totalEmails = emailData.reduce((sum, slot) => sum + (slot.total || 0), 0);
+                const totalActionable = emailData.reduce((sum, slot) => sum + (slot.actionable || 0), 0);
+                const totalCalls = emailData.reduce((sum, slot) => sum + (slot.calls || 0), 0);
+                
+                return {
+                    totalOT: Math.round(totalOT * 100) / 100,
+                    totalSB: Math.round(totalSB * 100) / 100,
+                    totalHours: Math.round((totalOT + totalSB) * 100) / 100,
+                    totalEmails,
+                    totalActionable,
+                    totalCalls,
+                    blocks
+                };
+            };
+
+            const handleSaveShift = () => {
+                if (!employeeName || employeeName.trim().length === 0) {
+                    alert('Please enter your employee name first');
+                    return;
+                }
+
+                if (!shiftDate) {
+                    alert('Please select a shift date');
+                    return;
+                }
+
+                // Validation removed - reason is now optional
+
+                const shiftTotals = calculateShiftTotals();
+
+                const hasAnyOverride = Object.values(blockOverrides).some(o => o.manualOT > 0);
+                if (hasAnyOverride) {
+                    if (!confirm('⚠️ This shift contains manual OT overrides.\n\nPlease verify:\n• Override hours are correct\n• Reasons are properly documented\n\nContinue saving?')) {
+                        return;
+                    }
+                }
+                
+                // Extract the month from the shift date itself (YYYY-MM format)
+                const shiftMonth = shiftDate.substring(0, 7); // Gets "2025-10" from "2025-10-31"
+                
+                // Check if saving to a different month than currently viewing
+                const isDifferentMonth = shiftMonth !== currentMonth;
+                
+                if (isDifferentMonth) {
+                    const shiftMonthDate = new Date(shiftDate + 'T12:00:00');
+                    const shiftMonthName = shiftMonthDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                    const currentMonthDate = new Date(currentMonth + '-01T12:00:00');
+                    const currentMonthName = currentMonthDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                    
+                    if (!confirm(`📅 Cross-Month Shift Detected\n\nYou are currently viewing: ${currentMonthName}\nThis shift date is: ${shiftMonthName}\n\nThe shift will be saved to ${shiftMonthName} (based on the shift start date).\n\nContinue saving?`)) {
+                        return;
+                    }
+                }
+                
+                const newShift = {
+                    id: Date.now(),
+                    date: shiftDate,
+                    shiftType,
+                    regularShiftStart,
+                    regularShiftEnd,
+                    emailData: [...emailData],
+                    totalOT: shiftTotals.totalOT,
+                    totalSB: shiftTotals.totalSB,
+                    blocks: shiftTotals.blocks,
+                    notes: shiftNotes,
+                    timeSlots: generateTimeSlots(shiftType),
+                    overtimeCode: getOvertimeCode(shiftDate, userSettings.statHolidays),
+                    blockOverrides: { ...blockOverrides }
+                };
+
+                // Load existing shifts for the target month (which might be different from current viewing month)
+                const existingShifts = loadFromLocalStorage(employeeName, shiftMonth);
+                const updatedShifts = [...existingShifts, newShift];
+                
+                // Save to the shift's actual month
+                saveToLocalStorage(employeeName, shiftMonth, updatedShifts);
+
+                // If saving to current month, update the display immediately
+                if (!isDifferentMonth) {
+                    setSavedShifts(updatedShifts);
+                }
+
+                // Clear the form
+                setShiftDate('');
+                setShiftType('weekday');
+                setRegularShiftStart('16:00');
+                setRegularShiftEnd('00:00');
+                setEmailData(Array(16).fill().map(() => ({ 
+                    total: 0, 
+                    actionable: 0, 
+                    calls: 0,
+                    comment: '' 
+                })));
+                setShiftNotes('');
+                setCollapsedBlocks({});
+                setBlockOverrides({
+                    0: { manualOT: 0, reason: '' },
+                    1: { manualOT: 0, reason: '' }
+                });
+                setOpenOverrideCards({});
+
+                if (isDifferentMonth) {
+                    const savedMonthDate = new Date(shiftDate + 'T12:00:00');
+                    const savedMonthName = savedMonthDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                    alert(`✅ Shift saved successfully to ${savedMonthName}!\n\nTo view this shift, change the month selector to ${savedMonthName}.`);
+                } else {
+                    alert('✅ Shift saved successfully! Your data is automatically saved to your browser.');
+                }
+            };
+
+            const handleClearForm = () => {
+                setShiftDate('');
+                setShiftType('weekday');
+                setRegularShiftStart('16:00');
+                setRegularShiftEnd('00:00');
+                setEmailData(Array(16).fill().map(() => ({ 
+                    total: 0, 
+                    actionable: 0, 
+                    calls: 0,
+                    comment: '' 
+                })));
+                setShiftNotes('');
+                setCollapsedBlocks({});
+                const numBlocks = shiftType === 'weekday' ? 2 : 8;
+                const newOverrides = {};
+                for (let i = 0; i < numBlocks; i++) {
+                    newOverrides[i] = { manualOT: 0, reason: '' };
+                }
+                setBlockOverrides(newOverrides);
+                setOpenOverrideCards({});
+            };
+
+            const handleDeleteShift = (id) => {
+                if (confirm('Are you sure you want to delete this shift?')) {
+                    setSavedShifts(savedShifts.filter(shift => shift.id !== id));
+                }
+            };
+
+            const updateEmailField = (index, field, value) => {
+                const newData = [...emailData];
+                
+                if (field === 'comment') {
+                    newData[index] = { ...newData[index], [field]: value };
+                } else {
+                    const numValue = parseInt(value) || 0;
+                    
+                    if (field === 'actionable') {
+                        const maxActionable = newData[index].total || 0;
+                        if (numValue > maxActionable) {
+                            alert('Actionable emails cannot exceed total emails');
+                            return;
+                        }
+                    }
+                    
+                    if (field === 'total') {
+                        if (numValue < newData[index].actionable) {
+                            newData[index] = { 
+                                ...newData[index], 
+                                total: numValue,
+                                actionable: numValue 
+                            };
+                        } else {
+                            newData[index] = { ...newData[index], [field]: numValue };
+                        }
+                    } else {
+                        newData[index] = { ...newData[index], [field]: numValue };
+                    }
+                }
+                
+                setEmailData(newData);
+            };
+
+            const toggleBlockCollapse = (blockKey) => {
+                setCollapsedBlocks(prev => ({
+                    ...prev,
+                    [blockKey]: !prev[blockKey]
+                }));
+            };
+
+            // NEW: Toggle override card visibility
+            const toggleOverrideCard = (blockIndex) => {
+                setOpenOverrideCards(prev => ({
+                    ...prev,
+                    [blockIndex]: !prev[blockIndex]
+                }));
+            };
+
+            const updateBlockOverride = useCallback((blockIndex, field, value) => {
+                setBlockOverrides(prev => {
+                    const newOverrides = { ...prev };
+                    
+                    if (field === 'manualOT') {
+                        const numValue = parseFloat(value) || 0;
+                        
+                        if (numValue < 0) {
+                            alert('Override OT cannot be negative');
+                            return prev;
+                        }
+                        
+                        if (numValue > 8.0) {
+                            alert('Override OT cannot exceed 8.00 hours');
+                            return prev;
+                        }
+                        
+                        newOverrides[blockIndex] = {
+                            ...newOverrides[blockIndex],
+                            manualOT: numValue
+                        };
+                    } else if (field === 'reason') {
+                        newOverrides[blockIndex] = {
+                            ...newOverrides[blockIndex],
+                            reason: value
+                        };
+                    }
+                    
+                    return newOverrides;
+                });
+            }, []);
+
+            const exportToExcel = async () => {
+                if (savedShifts.length === 0) {
+                    alert('No shifts to export. Please add at least one shift.');
+                    return;
+                }
+
+                try {
+                    const loadingMsg = document.createElement('div');
+                    loadingMsg.id = 'loading-export';
+                    loadingMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.9);color:white;padding:30px 50px;border-radius:10px;z-index:9999;font-size:18px;font-weight:bold;';
+                    loadingMsg.textContent = '✨ Generating beautiful report...';
+                    document.body.appendChild(loadingMsg);
+
+                    const workbook = new ExcelJS.Workbook();
+                    workbook.creator = 'OTCALC3 System';
+                    workbook.created = new Date();
+                    workbook.modified = new Date();
+
+                    const monthlyTotals = calculateMonthlyTotals();
+
+                    // (Excel export code remains the same as previous version - keeping it identical)
+                    const summarySheet = workbook.addWorksheet('Monthly Summary', {
+                        properties: { tabColor: { argb: 'FF1F4E78' } },
+                        views: [{ showGridLines: false }]
+                    });
+
+                    summarySheet.mergeCells('A1:H1');
+                    const titleCell = summarySheet.getCell('A1');
+                    titleCell.value = '🕐 MONTHLY OVERTIME TRACKER SUMMARY';
+                    titleCell.font = { name: 'Calibri', size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
+                    titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+                    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+                    titleCell.border = {
+                        top: { style: 'medium', color: { argb: 'FF1F4E78' } },
+                        bottom: { style: 'medium', color: { argb: 'FF1F4E78' } },
+                        left: { style: 'medium', color: { argb: 'FF1F4E78' } },
+                        right: { style: 'medium', color: { argb: 'FF1F4E78' } }
+                    };
+                    summarySheet.getRow(1).height = 35;
+
+                    summarySheet.mergeCells('A2:C2');
+                    summarySheet.mergeCells('E2:H2');
+                    summarySheet.getCell('A2').value = `Employee Name: ${employeeName}`;
+                    summarySheet.getCell('E2').value = `Month: ${currentMonth}`;
+                    summarySheet.getCell('A2').font = { bold: true, size: 11 };
+                    summarySheet.getCell('E2').font = { bold: true, size: 11 };
+                    summarySheet.getRow(2).height = 20;
+
+                    summarySheet.addRow([]);
+
+                    const metricsStart = 4;
+                    const metrics = [
+                        { label: 'Total Shifts', value: monthlyTotals.totalShifts },
+                        { label: 'Total OT Hours', value: monthlyTotals.totalOT.toFixed(2) },
+                        { label: 'Total SB Hours', value: monthlyTotals.totalSB.toFixed(2) },
+                        { label: 'Total Hours', value: monthlyTotals.totalHours.toFixed(2) },
+                        { label: 'Total Emails', value: monthlyTotals.totalEmails },
+                        { label: 'Total Actionable', value: monthlyTotals.totalActionable },
+                        { label: 'Total Calls', value: monthlyTotals.totalCalls }
+                    ];
+
+                    metrics.forEach((metric, index) => {
+                        const row = metricsStart + index;
+                        const labelCell = summarySheet.getCell(`A${row}`);
+                        const valueCell = summarySheet.getCell(`B${row}`);
+                        
+                        labelCell.value = metric.label;
+                        labelCell.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
+                        labelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } };
+                        labelCell.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+                        labelCell.border = {
+                            top: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+                            bottom: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+                            left: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+                            right: { style: 'thin', color: { argb: 'FFD0D0D0' } }
+                        };
+                        
+                        valueCell.value = metric.value;
+                        valueCell.font = { bold: true, size: 12 };
+                        valueCell.alignment = { horizontal: 'right', vertical: 'middle' };
+                        valueCell.border = {
+                            top: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+                            bottom: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+                            left: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+                            right: { style: 'thin', color: { argb: 'FFD0D0D0' } }
+                        };
+                        
+                        summarySheet.getRow(row).height = 22;
+                    });
+
+                    summarySheet.addRow([]);
+
+                    const tableStartRow = metricsStart + metrics.length + 2;
+                    
+                    summarySheet.mergeCells(`A${tableStartRow}:H${tableStartRow}`);
+                    const sectionHeader = summarySheet.getCell(`A${tableStartRow}`);
+                    sectionHeader.value = 'SHIFT BREAKDOWN';
+                    sectionHeader.font = { bold: true, size: 12, color: { argb: 'FFFFFFFF' } };
+                    sectionHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } };
+                    sectionHeader.alignment = { horizontal: 'center', vertical: 'middle' };
+                    summarySheet.getRow(tableStartRow).height = 25;
+
+                    const headerRow = summarySheet.getRow(tableStartRow + 1);
+                    const headers = ['Date', 'Type', 'OT Hours', 'SB Hours', 'Total Emails', 'Actionable', 'Calls', 'OT Code'];
+                    headers.forEach((header, idx) => {
+                        const cell = headerRow.getCell(idx + 1);
+                        cell.value = header;
+                        cell.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+                        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                        cell.border = {
+                            top: { style: 'thin', color: { argb: 'FFFFFFFF' } },
+                            bottom: { style: 'thin', color: { argb: 'FFFFFFFF' } },
+                            left: { style: 'thin', color: { argb: 'FFFFFFFF' } },
+                            right: { style: 'thin', color: { argb: 'FFFFFFFF' } }
+                        };
+                    });
+                    headerRow.height = 20;
+
+                    savedShifts.forEach((shift, index) => {
+                        const totalEmails = shift.emailData.reduce((sum, slot) => sum + slot.total, 0);
+                        const totalActionable = shift.emailData.reduce((sum, slot) => sum + slot.actionable, 0);
+                        const totalCalls = shift.emailData.reduce((sum, slot) => sum + slot.calls, 0);
+                        
+                        const dataRow = summarySheet.getRow(tableStartRow + 2 + index);
+                        const getShiftTypeLabel = (type) => {
+                            if (type === 'weekday') return 'Weekday (16hr)';
+                            if (type === 'stat_holiday') return 'Stat Holiday (24hr)';
+                            return 'Weekend (64hr)';
+                        };
+                        const rowData = [
+                            shift.date,
+                            getShiftTypeLabel(shift.shiftType),
+                            shift.totalOT.toFixed(2),
+                            shift.totalSB.toFixed(2),
+                            totalEmails,
+                            totalActionable,
+                            totalCalls,
+                            shift.overtimeCode
+                        ];
+                        
+                        rowData.forEach((value, colIdx) => {
+                            const cell = dataRow.getCell(colIdx + 1);
+                            cell.value = value;
+                            cell.alignment = { horizontal: colIdx > 1 ? 'center' : 'left', vertical: 'middle' };
+                            
+                            if (index % 2 === 0) {
+                                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } };
+                            } else {
+                                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+                            }
+                            
+                            if (colIdx === 7) {
+                                if (value === '260') {
+                                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
+                                } else if (value === '261') {
+                                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4D6' } };
+                                } else if (value === '262') {
+                                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } };
+                                }
+                                cell.font = { bold: true };
+                            }
+                            
+                            cell.border = {
+                                top: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+                                bottom: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+                                left: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+                                right: { style: 'thin', color: { argb: 'FFD0D0D0' } }
+                            };
+                        });
+                        
+                        dataRow.height = 18;
+                    });
+
+                    const totalRow = summarySheet.getRow(tableStartRow + 2 + savedShifts.length);
+                    totalRow.getCell(1).value = 'TOTALS';
+                    totalRow.getCell(1).font = { bold: true, size: 11 };
+                    totalRow.getCell(3).value = monthlyTotals.totalOT.toFixed(2);
+                    totalRow.getCell(4).value = monthlyTotals.totalSB.toFixed(2);
+                    totalRow.getCell(5).value = monthlyTotals.totalEmails;
+                    totalRow.getCell(6).value = monthlyTotals.totalActionable;
+                    totalRow.getCell(7).value = monthlyTotals.totalCalls;
+                    
+                    for (let i = 1; i <= 8; i++) {
+                        const cell = totalRow.getCell(i);
+                        cell.font = { bold: true, size: 11 };
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+                        cell.alignment = { horizontal: i > 2 ? 'center' : 'left', vertical: 'middle' };
+                        cell.border = {
+                            top: { style: 'medium', color: { argb: 'FF1F4E78' } },
+                            bottom: { style: 'medium', color: { argb: 'FF1F4E78' } },
+                            left: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+                            right: { style: 'thin', color: { argb: 'FFD0D0D0' } }
+                        };
+                    }
+                    totalRow.height = 22;
+
+                    summarySheet.getColumn(1).width = 15;
+                    summarySheet.getColumn(2).width = 18;
+                    summarySheet.getColumn(3).width = 12;
+                    summarySheet.getColumn(4).width = 12;
+                    summarySheet.getColumn(5).width = 14;
+                    summarySheet.getColumn(6).width = 14;
+                    summarySheet.getColumn(7).width = 10;
+                    summarySheet.getColumn(8).width = 12;
+
+                    // Individual shift sheets and other sheets (code continues as before with override support)
+                    // ... (keeping the rest of the Excel export code identical to previous version)
+
+                    savedShifts.forEach((shift, shiftIndex) => {
+                        // SAFETY CHECK: Ensure blocks array exists
+                        if (!shift.blocks || !Array.isArray(shift.blocks)) {
+                            console.warn(`Skipping shift ${shiftIndex + 1} - blocks missing or invalid`);
+                            return; // Skip this shift
+                        }
+                        
+                        const date = new Date(shift.date);
+                        const sheetName = `Shift ${shiftIndex + 1} - ${date.getMonth() + 1}-${date.getDate()}`;
+                        const ws = workbook.addWorksheet(sheetName, {
+                            properties: { tabColor: { argb: 'FF4472C4' } }
+                        });
+
+                        ws.mergeCells('A1:J1');
+                        const shiftTitle = ws.getCell('A1');
+                        shiftTitle.value = `📅 SHIFT DETAIL - ${shift.date}`;
+                        shiftTitle.font = { size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+                        shiftTitle.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+                        shiftTitle.alignment = { horizontal: 'center', vertical: 'middle' };
+                        ws.getRow(1).height = 30;
+
+                        ws.getCell('A2').value = 'Employee:';
+                        ws.getCell('B2').value = employeeName;
+                        ws.getCell('A3').value = 'Shift Type:';
+                        const shiftTypeDisplay = shift.shiftType === 'weekday' ? 'Weekday (16 hours)' 
+                            : shift.shiftType === 'stat_holiday' ? 'Stat Holiday (24 hours)' 
+                            : 'Weekend (64 hours)';
+                        ws.getCell('B3').value = shiftTypeDisplay;
+                        ws.getCell('A4').value = 'Regular Shift:';
+                        ws.getCell('B4').value = `${shift.regularShiftStart} - ${shift.regularShiftEnd}`;
+                        
+                        ['A2', 'A3', 'A4'].forEach(cell => {
+                            ws.getCell(cell).font = { bold: true };
+                            ws.getCell(cell).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE7E6E6' } };
+                        });
+
+                        ws.addRow([]);
+                        ws.getCell('A6').value = 'RegularShiftStart';
+                        ws.getCell('B6').value = shift.regularShiftStart;
+                        ws.getCell('A7').value = 'RegularShiftEnd';
+                        ws.getCell('B7').value = shift.regularShiftEnd;
+
+                        ws.addRow([]);
+
+                        ws.mergeCells('A9:J9');
+                        ws.getCell('A9').value = 'BLOCK CALCULATIONS';
+                        ws.getCell('A9').font = { bold: true, size: 12, color: { argb: 'FFFFFFFF' } };
+                        ws.getCell('A9').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } };
+                        ws.getCell('A9').alignment = { horizontal: 'center', vertical: 'middle' };
+                        ws.getRow(9).height = 25;
+
+                        const blockHeaderRow = ws.getRow(10);
+                        const blockHeaders = ['Block', 'StartTime', 'EndTime', 'Actionable', 'TotalEmails', 'Email OT', 'Override OT', 'Total OT', 'SB', 'Code'];
+                        blockHeaders.forEach((header, idx) => {
+                            const cell = blockHeaderRow.getCell(idx + 1);
+                            cell.value = header;
+                            cell.font = { bold: true, size: 10, color: { argb: 'FFFFFFFF' } };
+                            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+                            cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+                        });
+                        blockHeaderRow.height = 25;
+
+                        shift.blocks.forEach((block, idx) => {
+                            const blockRow = ws.getRow(11 + idx);
+                            blockRow.values = [
+                                block.name || '',
+                                (block.timeRange || '').split('-')[0],
+                                (block.timeRange || '').split('-')[1],
+                                block.totalActionable || 0,
+                                block.totalEmails || 0,
+                                (block.emailBasedOT || 0).toFixed(2),
+                                (block.manualOverrideOT || 0).toFixed(2),
+                                (block.totalBlockOT || 0).toFixed(2),
+                                (block.blockSB || 0).toFixed(2),
+                                block.code || ''
+                            ];
+                            
+                            blockRow.eachCell((cell, colNumber) => {
+                                cell.alignment = { horizontal: colNumber > 1 ? 'center' : 'left', vertical: 'middle' };
+                                
+                                if (block.hasOverride) {
+                                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF4E6' } };
+                                    if (colNumber === 1) {
+                                        cell.value = `⚠️ ${cell.value}`;
+                                        cell.font = { bold: true };
+                                    }
+                                } else {
+                                    if (idx % 2 === 0) {
+                                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } };
+                                    } else {
+                                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+                                    }
+                                }
+                                
+                                if (colNumber === 10) {
+                                    if (cell.value === '260') {
+                                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
+                                    } else if (cell.value === '261') {
+                                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4D6' } };
+                                    } else if (cell.value === '262') {
+                                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } };
+                                    }
+                                    cell.font = { bold: true };
+                                }
+                                
+                                cell.border = {
+                                    top: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+                                    bottom: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+                                    left: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+                                    right: { style: 'thin', color: { argb: 'FFD0D0D0' } }
+                                };
+                            });
+                            blockRow.height = 20;
+                        });
+
+                        const hasOverrides = shift.blocks.some(b => b.hasOverride);
+                        if (hasOverrides) {
+                            const overrideSectionStart = 11 + shift.blocks.length + 1;
+                            ws.addRow([]);
+                            
+                            ws.mergeCells(`A${overrideSectionStart}:J${overrideSectionStart}`);
+                            ws.getCell(`A${overrideSectionStart}`).value = '⚠️ OVERTIME OVERRIDES';
+                            ws.getCell(`A${overrideSectionStart}`).font = { bold: true, size: 12, color: { argb: 'FFFFFFFF' } };
+                            ws.getCell(`A${overrideSectionStart}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF9800' } };
+                            ws.getCell(`A${overrideSectionStart}`).alignment = { horizontal: 'center', vertical: 'middle' };
+                            ws.getRow(overrideSectionStart).height = 25;
+
+                            const overrideHeaderRow = ws.getRow(overrideSectionStart + 1);
+                            overrideHeaderRow.values = ['Block', 'Override OT', 'Reason'];
+                            overrideHeaderRow.eachCell((cell) => {
+                                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF9800' } };
+                                cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                            });
+
+                            let overrideRowNum = overrideSectionStart + 2;
+                            shift.blocks.forEach((block) => {
+                                if (block.hasOverride) {
+                                    const row = ws.getRow(overrideRowNum);
+                                    row.values = [
+                                        block.name,
+                                        `+${(block.manualOverrideOT || 0).toFixed(2)}h`,
+                                        block.overrideReason || ''
+                                    ];
+                                    row.eachCell((cell, colNumber) => {
+                                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF4E6' } };
+                                        cell.alignment = { horizontal: colNumber === 3 ? 'left' : 'center', vertical: 'middle' };
+                                        if (colNumber === 1 || colNumber === 2) {
+                                            cell.font = { bold: true };
+                                        }
+                                    });
+                                    overrideRowNum++;
+                                }
+                            });
+                        }
+
+                        ws.addRow([]);
+
+                        const hourlyStartRow = hasOverrides ? (11 + shift.blocks.length + 2 + shift.blocks.filter(b => b.hasOverride).length + 2) : (11 + shift.blocks.length + 2);
+                        ws.mergeCells(`A${hourlyStartRow}:H${hourlyStartRow}`);
+                        ws.getCell(`A${hourlyStartRow}`).value = 'HOURLY DETAIL';
+                        ws.getCell(`A${hourlyStartRow}`).font = { bold: true, size: 12, color: { argb: 'FFFFFFFF' } };
+                        ws.getCell(`A${hourlyStartRow}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } };
+                        ws.getCell(`A${hourlyStartRow}`).alignment = { horizontal: 'center', vertical: 'middle' };
+                        ws.getRow(hourlyStartRow).height = 25;
+
+                        const hourlyHeaderRow = ws.getRow(hourlyStartRow + 1);
+                        const hourlyHeaders = ['Hour', 'Time', 'TotalEmails', 'ActionableEmails', 'OT', 'SB', 'Calls', 'Comments'];
+                        hourlyHeaders.forEach((header, idx) => {
+                            const cell = hourlyHeaderRow.getCell(idx + 1);
+                            cell.value = header;
+                            cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+                            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                        });
+                        hourlyHeaderRow.height = 20;
+
+                        shift.timeSlots.forEach((slot, idx) => {
+                            const hourOTSB = calculateHourlyOTSB(shift.emailData[idx]?.actionable || 0, shift.emailData[idx]?.calls || 0);
+                            const hourRow = ws.getRow(hourlyStartRow + 2 + idx);
+                            hourRow.values = [
+                                idx + 1,
+                                slot,
+                                shift.emailData[idx]?.total || 0,
+                                shift.emailData[idx]?.actionable || 0,
+                                hourOTSB.ot.toFixed(2),
+                                hourOTSB.sb.toFixed(2),
+                                shift.emailData[idx]?.calls || 0,
+                                shift.emailData[idx]?.comment || ''
+                            ];
+                            
+                            hourRow.eachCell((cell, colNumber) => {
+                                cell.alignment = { horizontal: colNumber > 2 ? 'center' : 'left', vertical: 'middle' };
+                                if (idx % 2 === 0) {
+                                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } };
+                                } else {
+                                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+                                }
+                                cell.border = {
+                                    top: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+                                    bottom: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+                                    left: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+                                    right: { style: 'thin', color: { argb: 'FFD0D0D0' } }
+                                };
+                            });
+                        });
+
+                        if (shift.notes) {
+                            ws.addRow([]);
+                            ws.addRow(['Shift Notes:', shift.notes]);
+                        }
+
+                        ws.getColumn(1).width = 18;
+                        ws.getColumn(2).width = 12;
+                        ws.getColumn(3).width = 12;
+                        ws.getColumn(4).width = 14;
+                        ws.getColumn(5).width = 10;
+                        ws.getColumn(6).width = 12;
+                        ws.getColumn(7).width = 10;
+                        ws.getColumn(8).width = 10;
+                        ws.getColumn(9).width = 10;
+                        ws.getColumn(10).width = 30;
+                    });
+
+                    // All Shifts Detail sheet - keeping identical
+                    const allShiftsSheet = workbook.addWorksheet('All Shifts Detail');
+                    allShiftsSheet.mergeCells('A1:J1');
+                    allShiftsSheet.getCell('A1').value = '📊 ALL SHIFTS - HOURLY DETAIL';
+                    allShiftsSheet.getCell('A1').font = { size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+                    allShiftsSheet.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+                    allShiftsSheet.getCell('A1').alignment = { horizontal: 'center', vertical: 'middle' };
+                    allShiftsSheet.getRow(1).height = 30;
+
+                    allShiftsSheet.getCell('A2').value = 'Employee:';
+                    allShiftsSheet.getCell('B2').value = employeeName;
+                    allShiftsSheet.getCell('A3').value = 'Month:';
+                    allShiftsSheet.getCell('B3').value = currentMonth;
+                    allShiftsSheet.addRow([]);
+
+                    const allShiftsHeaderRow = allShiftsSheet.getRow(5);
+                    const allShiftsHeaders = ['Date', 'Type', 'Hour', 'Time', 'Total', 'Actionable', 'Calls', 'OT', 'SB', 'Comments'];
+                    allShiftsHeaders.forEach((header, idx) => {
+                        const cell = allShiftsHeaderRow.getCell(idx + 1);
+                        cell.value = header;
+                        cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+                        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                    });
+                    allShiftsHeaderRow.height = 20;
+
+                    let currentRow = 6;
+                    savedShifts.forEach((shift) => {
+                        // SAFETY CHECK: Ensure timeSlots and emailData exist
+                        if (!shift.timeSlots || !shift.emailData) {
+                            console.warn(`Skipping shift ${shift.date} - missing timeSlots or emailData`);
+                            return;
+                        }
+                        
+                        shift.timeSlots.forEach((slot, idx) => {
+                            const hourOTSB = calculateHourlyOTSB(shift.emailData[idx]?.actionable || 0, shift.emailData[idx]?.calls || 0);
+                            const shiftTypeLabel = shift.shiftType === 'weekday' ? 'Weekday' 
+                                : shift.shiftType === 'stat_holiday' ? 'Stat Holiday' 
+                                : 'Weekend';
+                            const row = allShiftsSheet.getRow(currentRow);
+                            row.values = [
+                                shift.date,
+                                shiftTypeLabel,
+                                idx + 1,
+                                slot,
+                                shift.emailData[idx]?.total || 0,
+                                shift.emailData[idx]?.actionable || 0,
+                                shift.emailData[idx]?.calls || 0,
+                                hourOTSB.ot.toFixed(2),
+                                hourOTSB.sb.toFixed(2),
+                                shift.emailData[idx]?.comment || ''
+                            ];
+                            
+                            row.eachCell((cell) => {
+                                cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                                if (currentRow % 2 === 0) {
+                                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } };
+                                } else {
+                                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+                                }
+                                cell.border = {
+                                    top: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+                                    bottom: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+                                    left: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+                                    right: { style: 'thin', color: { argb: 'FFD0D0D0' } }
+                                };
+                            });
+                            currentRow++;
+                        });
+                    });
+
+                    allShiftsSheet.getColumn(1).width = 12;
+                    allShiftsSheet.getColumn(2).width = 10;
+                    allShiftsSheet.getColumn(3).width = 8;
+                    allShiftsSheet.getColumn(4).width = 15;
+                    allShiftsSheet.getColumn(5).width = 10;
+                    allShiftsSheet.getColumn(6).width = 12;
+                    allShiftsSheet.getColumn(7).width = 8;
+                    allShiftsSheet.getColumn(8).width = 8;
+                    allShiftsSheet.getColumn(9).width = 8;
+                    allShiftsSheet.getColumn(10).width = 20;
+
+                    // GC 179 Summary - keeping identical
+                    const gc179Sheet = workbook.addWorksheet('GC 179 Summary');
+                    gc179Sheet.mergeCells('A1:G1');
+                    gc179Sheet.getCell('A1').value = '🏛️ GC 179 OVERTIME COMPENSATION SUMMARY';
+                    gc179Sheet.getCell('A1').font = { size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+                    gc179Sheet.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+                    gc179Sheet.getCell('A1').alignment = { horizontal: 'center', vertical: 'middle' };
+                    gc179Sheet.getRow(1).height = 30;
+
+                    gc179Sheet.getCell('A2').value = 'Employee Name:';
+                    gc179Sheet.getCell('B2').value = employeeName;
+                    gc179Sheet.getCell('A3').value = 'Period:';
+                    gc179Sheet.getCell('B3').value = currentMonth;
+                    ['A2', 'A3'].forEach(cell => {
+                        gc179Sheet.getCell(cell).font = { bold: true };
+                    });
+                    gc179Sheet.addRow([]);
+
+                    const gc179HeaderRow = gc179Sheet.getRow(5);
+                    const gc179Headers = ['Date', 'Total OT Hours', 'Total SB Hours', 'OT Code', 'Total Emails', 'Actionable Emails', 'Notes'];
+                    gc179Headers.forEach((header, idx) => {
+                        const cell = gc179HeaderRow.getCell(idx + 1);
+                        cell.value = header;
+                        cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+                        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                    });
+                    gc179HeaderRow.height = 20;
+
+                    savedShifts.forEach((shift, idx) => {
+                        const totalEmails = shift.emailData.reduce((sum, slot) => sum + slot.total, 0);
+                        const totalActionable = shift.emailData.reduce((sum, slot) => sum + slot.actionable, 0);
+                        
+                        const row = gc179Sheet.getRow(6 + idx);
+                        row.values = [
+                            shift.date,
+                            shift.totalOT.toFixed(2),
+                            shift.totalSB.toFixed(2),
+                            shift.overtimeCode,
+                            totalEmails,
+                            totalActionable,
+                            shift.notes || ''
+                        ];
+                        
+                        row.eachCell((cell, colNumber) => {
+                            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                            if (idx % 2 === 0) {
+                                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } };
+                            } else {
+                                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+                            }
+                            
+                            if (colNumber === 4) {
+                                if (cell.value === '260') {
+                                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
+                                } else if (cell.value === '261') {
+                                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4D6' } };
+                                } else if (cell.value === '262') {
+                                    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } };
+                                }
+                                cell.font = { bold: true };
+                            }
+                            
+                            cell.border = {
+                                top: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+                                bottom: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+                                left: { style: 'thin', color: { argb: 'FFD0D0D0' } },
+                                right: { style: 'thin', color: { argb: 'FFD0D0D0' } }
+                            };
+                        });
+                    });
+
+                    gc179Sheet.addRow([]);
+                    const summaryStartRow = 6 + savedShifts.length + 1;
+                    gc179Sheet.mergeCells(`A${summaryStartRow}:G${summaryStartRow}`);
+                    gc179Sheet.getCell(`A${summaryStartRow}`).value = 'SUMMARY:';
+                    gc179Sheet.getCell(`A${summaryStartRow}`).font = { bold: true, size: 12 };
+                    gc179Sheet.getCell(`A${summaryStartRow}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+                    
+                    gc179Sheet.getCell(`A${summaryStartRow + 1}`).value = 'Total OT Hours:';
+                    gc179Sheet.getCell(`B${summaryStartRow + 1}`).value = monthlyTotals.totalOT.toFixed(2);
+                    gc179Sheet.getCell(`A${summaryStartRow + 2}`).value = 'Total SB Hours:';
+                    gc179Sheet.getCell(`B${summaryStartRow + 2}`).value = monthlyTotals.totalSB.toFixed(2);
+                    gc179Sheet.getCell(`A${summaryStartRow + 3}`).value = 'Total Emails:';
+                    gc179Sheet.getCell(`B${summaryStartRow + 3}`).value = monthlyTotals.totalEmails;
+                    gc179Sheet.getCell(`A${summaryStartRow + 4}`).value = 'Total Actionable:';
+                    gc179Sheet.getCell(`B${summaryStartRow + 4}`).value = monthlyTotals.totalActionable;
+
+                    [1, 2, 3, 4].forEach(i => {
+                        gc179Sheet.getCell(`A${summaryStartRow + i}`).font = { bold: true };
+                        gc179Sheet.getCell(`B${summaryStartRow + i}`).font = { bold: true };
+                    });
+
+                    gc179Sheet.getColumn(1).width = 12;  // Date
+                    gc179Sheet.getColumn(2).width = 15;  // Total OT Hours
+                    gc179Sheet.getColumn(3).width = 15;  // Total SB Hours
+                    gc179Sheet.getColumn(4).width = 12;  // OT Code
+                    gc179Sheet.getColumn(5).width = 14;  // Total Emails
+                    gc179Sheet.getColumn(6).width = 16;  // Actionable Emails
+                    gc179Sheet.getColumn(7).width = 30;  // Notes
+
+                    const buffer = await workbook.xlsx.writeBuffer();
+                    const blob = new Blob([buffer], { 
+                        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+                    });
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `OT_Tracker_${employeeName.replace(/\s+/g, '_')}_${currentMonth}.xlsx`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+
+                    const loading = document.getElementById('loading-export');
+                    if (loading) loading.remove();
+
+                    alert(`✨ Beautiful monthly report exported successfully!\n\nFile: ${a.download}\n\n✓ Professional formatting\n✓ Color-coded tables\n✓ Override tracking\n✓ Easy to read`);
+
+                } catch (error) {
+                    console.error('Export error:', error);
+                    console.error('Error stack:', error.stack);
+                    const loading = document.getElementById('loading-export');
+                    if (loading) loading.remove();
+                    alert(`Error generating report:\n\n${error.message}\n\nCheck console (F12) for details.`);
+                }
+            };
+
+            const currentTimeSlots = generateTimeSlots(shiftType);
+            const shiftTotals = calculateShiftTotals();
+            const monthlyTotals = calculateMonthlyTotals();
+
+            const renderHourlyBlock = (timeSlot, index) => {
+                const hourOTSB = calculateHourlyOTSB(emailData[index]?.actionable || 0, emailData[index]?.calls || 0);
+                
+                return (
+                    <div key={index} className="bg-white p-3 rounded border border-gray-200">
+                        <div className="font-medium text-sm text-gray-700 mb-2">{timeSlot}</div>
+                        <div className="space-y-2">
+                            <div className="grid grid-cols-3 gap-2">
+                                <div>
+                                    <label className="text-xs text-gray-600 block mb-1">Total</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={emailData[index]?.total || 0}
+                                        onChange={(e) => updateEmailField(index, 'total', e.target.value)}
+                                        className="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-gray-600 block mb-1">Action</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        max={emailData[index]?.total || 0}
+                                        value={emailData[index]?.actionable || 0}
+                                        onChange={(e) => updateEmailField(index, 'actionable', e.target.value)}
+                                        className="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-gray-600 block mb-1">Calls</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={emailData[index]?.calls || 0}
+                                        onChange={(e) => updateEmailField(index, 'calls', e.target.value)}
+                                        className="w-full border border-gray-300 rounded px-2 py-1 text-sm"
+                                    />
+                                </div>
+                            </div>
+                            <div className="text-xs text-gray-600 bg-gray-50 px-2 py-1 rounded">
+                                OT: {hourOTSB.ot} | SB: {hourOTSB.sb}
+                            </div>
+                            <input
+                                type="text"
+                                value={emailData[index]?.comment || ''}
+                                onChange={(e) => updateEmailField(index, 'comment', e.target.value)}
+                                placeholder="Comments..."
+                                className="w-full border border-gray-300 rounded px-2 py-1 text-xs"
+                            />
+                        </div>
+                    </div>
+                );
+            };
+
+            // Settings Modal Component
+            const SettingsModal = ({ isOpen, onClose, settings, onSave }) => {
+                const [statHolidays, setStatHolidays] = useState(settings.statHolidays || []);
+                const [newHolidayDate, setNewHolidayDate] = useState('');
+
+                const handleAddHoliday = () => {
+                    if (newHolidayDate && !statHolidays.includes(newHolidayDate)) {
+                        setStatHolidays([...statHolidays, newHolidayDate].sort());
+                        setNewHolidayDate('');
+                    }
+                };
+
+                const handleRemoveHoliday = (dateToRemove) => {
+                    setStatHolidays(statHolidays.filter(date => date !== dateToRemove));
+                };
+
+                const handleSave = () => {
+                    onSave({ ...settings, statHolidays });
+                    onClose();
+                };
+
+                if (!isOpen) return null;
+
+                return (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={onClose}>
+                        <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+                            <div className="p-6">
+                                <div className="flex items-center justify-between mb-6">
+                                    <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                                        <Settings />
+                                        Settings
+                                    </h2>
+                                    <button
+                                        onClick={onClose}
+                                        className="text-gray-400 hover:text-gray-600 text-2xl"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+
+                                <div className="space-y-6">
+                                    {/* Stat Holidays Section */}
+                                    <div className="border-b pb-6">
+                                        <h3 className="text-lg font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                                            <Calendar />
+                                            Statutory Holidays
+                                        </h3>
+                                        <p className="text-sm text-gray-600 mb-4">
+                                            Shifts on these dates will automatically become 24-hour shifts (00:00-00:00) with overtime code 263.
+                                        </p>
+
+                                        <div className="flex gap-2 mb-4">
+                                            <input
+                                                type="date"
+                                                value={newHolidayDate}
+                                                onChange={(e) => setNewHolidayDate(e.target.value)}
+                                                className="flex-1 border border-gray-300 rounded px-3 py-2"
+                                                placeholder="Select date"
+                                            />
+                                            <button
+                                                onClick={handleAddHoliday}
+                                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded flex items-center gap-2"
+                                            >
+                                                <Plus />
+                                                Add Holiday
+                                            </button>
+                                        </div>
+
+                                        {statHolidays.length > 0 ? (
+                                            <div className="space-y-2">
+                                                {statHolidays.map((date) => {
+                                                    const dateObj = new Date(date + 'T12:00:00');
+                                                    const formattedDate = dateObj.toLocaleDateString('en-US', { 
+                                                        weekday: 'long', 
+                                                        year: 'numeric', 
+                                                        month: 'long', 
+                                                        day: 'numeric' 
+                                                    });
+                                                    return (
+                                                        <div key={date} className="flex items-center justify-between bg-gray-50 p-3 rounded">
+                                                            <span className="text-gray-700">{formattedDate}</span>
+                                                            <button
+                                                                onClick={() => handleRemoveHoliday(date)}
+                                                                className="text-red-600 hover:text-red-800 flex items-center gap-1"
+                                                            >
+                                                                <Trash />
+                                                                Remove
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        ) : (
+                                            <p className="text-sm text-gray-500 italic">No statutory holidays configured yet.</p>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-3 mt-6 pt-6 border-t">
+                                    <button
+                                        onClick={handleSave}
+                                        className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium flex items-center justify-center gap-2"
+                                    >
+                                        <Save />
+                                        Save Settings
+                                    </button>
+                                    <button
+                                        onClick={onClose}
+                                        className="px-6 py-3 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-medium"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            // CRITICAL FIX: Memoized component with local state for textarea
+            const ExceptionOverrideCard = React.memo(({ 
+                blockIndex, 
+                blockName,
+                emailBasedOT,
+                overrideHours,
+                overrideReason,
+                isOpen,
+                onToggle,
+                onUpdateHours,
+                onUpdateReason
+            }) => {
+                // Local state prevents parent re-renders on every keystroke
+                const [localReason, setLocalReason] = useState(overrideReason);
+                const textareaRef = useRef(null);
+                
+                // Sync when prop changes
+                useEffect(() => {
+                    setLocalReason(overrideReason);
+                }, [overrideReason]);
+                
+                // Handle typing locally
+                const handleReasonChange = (e) => {
+                    setLocalReason(e.target.value);
+                };
+                
+                // Update parent on blur only
+                const handleReasonBlur = () => {
+                    if (localReason !== overrideReason) {
+                        onUpdateReason(blockIndex, localReason);
+                    }
+                };
+                
+                const maxOverride = 8.0 - emailBasedOT;
+                const totalOT = emailBasedOT + overrideHours;
+                const totalSB = 8.0 - totalOT;
+                
+                return (
+                    <div className="mt-4">
+                        {/* NEW: Toggle Button */}
+                        <button
+                            onClick={() => onToggle(blockIndex)}
+                            className={`w-full flex items-center justify-between px-4 py-3 rounded-lg font-semibold transition-all ${
+                                overrideHours > 0
+                                    ? 'bg-orange-100 border-2 border-orange-400 text-orange-800 hover:bg-orange-200'
+                                    : 'bg-gray-100 border-2 border-gray-300 text-gray-700 hover:bg-gray-200'
+                            }`}
+                        >
+                            <div className="flex items-center gap-2">
+                                {overrideHours > 0 ? <AlertTriangle /> : <Plus />}
+                                <span>
+                                    {overrideHours > 0 
+                                        ? `⚠️ Override Active: +${overrideHours.toFixed(2)}h`
+                                        : '➕ Add Exception Override'}
+                                </span>
+                            </div>
+                            {isOpen ? <ChevronUp /> : <ChevronDown />}
+                        </button>
+
+                        {/* Collapsible Content */}
+                        {isOpen && (
+                            <div className="bg-orange-50 border-2 border-orange-300 rounded-lg p-4 mt-2">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <AlertTriangle />
+                                    <h4 className="font-bold text-orange-800 text-lg">
+                                        Exception Override - {blockName} Block
+                                    </h4>
+                                </div>
+                                
+                                <div className="bg-yellow-50 border border-yellow-300 rounded p-3 mb-3">
+                                    <p className="text-sm text-yellow-900">
+                                        <strong>⚠️ Use only for non-email work:</strong> System maintenance, training, reports, emergency tasks, etc.
+                                    </p>
+                                </div>
+                                
+                                <div className="bg-white rounded p-3 mb-3">
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Manual OT Hours <span className="text-gray-500">(0 to {maxOverride.toFixed(2)})</span>
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        max={maxOverride}
+                                        step="0.25"
+                                        value={overrideHours}
+                                        onChange={(e) => onUpdateHours(blockIndex, e.target.value)}
+                                        className="w-full border-2 border-orange-300 rounded px-3 py-2 text-lg font-bold focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
+                                        placeholder="0.00"
+                                    />
+                                </div>
+                                
+                                {overrideHours > 0 && (
+                                    <div className="bg-white rounded p-3 mb-3">
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                                            Reason for Override <span className="text-gray-500">(Optional)</span>
+                                        </label>
+                                        <textarea
+                                            ref={textareaRef}
+                                            value={localReason}
+                                            onChange={handleReasonChange}
+                                            onBlur={handleReasonBlur}
+                                            className="w-full border-2 border-orange-300 rounded px-3 py-2 h-24 focus:border-orange-500 focus:ring-2 focus:ring-orange-200"
+                                            placeholder="Optional: Add notes about this override (e.g., 'System maintenance')"
+                                        />
+                                        <p className="text-xs text-gray-600 mt-1">
+                                            Add any notes about this override (optional)
+                                        </p>
+                                    </div>
+                                )}
+                                
+                                <div className="bg-blue-50 rounded p-4 border border-blue-200">
+                                    <div className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                                        <Calculator />
+                                        Block Calculation Preview:
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3 text-sm">
+                                        <div className="text-gray-700">Email-based OT:</div>
+                                        <div className="font-bold text-right">{emailBasedOT.toFixed(2)}h</div>
+                                        
+                                        <div className="text-gray-700">Manual Override OT:</div>
+                                        <div className="font-bold text-right text-orange-600">
+                                            +{overrideHours.toFixed(2)}h
+                                        </div>
+                                        
+                                        <div className="border-t pt-2 font-bold text-gray-800">Final Block OT:</div>
+                                        <div className="border-t pt-2 font-bold text-right text-green-600">
+                                            {totalOT.toFixed(2)}h
+                                        </div>
+                                        
+                                        <div className="text-gray-700">Final Block SB:</div>
+                                        <div className="font-bold text-right">{totalSB.toFixed(2)}h</div>
+                                        
+                                        <div className="col-span-2 border-t pt-2 text-center font-bold text-lg">
+                                            Total: {(totalOT + totalSB).toFixed(2)}h ✓
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                );
+            }, (prevProps, nextProps) => {
+                // Only re-render if these values change
+                return (
+                    prevProps.emailBasedOT === nextProps.emailBasedOT &&
+                    prevProps.overrideHours === nextProps.overrideHours &&
+                    prevProps.overrideReason === nextProps.overrideReason &&
+                    prevProps.isOpen === nextProps.isOpen
+                );
+            });
+
+            const handleSaveSettings = (newSettings) => {
+                setUserSettings(newSettings);
+                saveSettings(newSettings);
+            };
+
+            // (Render JSX continues with the rest of the UI - keeping all the saved shifts, header, etc. identical)
+            return (
+                <div className="min-h-screen bg-gray-50 p-6">
+                    {/* Settings Modal */}
+                    <SettingsModal
+                        isOpen={showSettings}
+                        onClose={() => setShowSettings(false)}
+                        settings={userSettings}
+                        onSave={handleSaveSettings}
+                    />
+                    
+                    <div className="max-w-7xl mx-auto">
+                        <div className="bg-white rounded-lg shadow p-6 mb-6">
+                            <div className="flex items-center justify-between mb-6">
+                                <h1 className="text-3xl font-bold text-blue-800 flex items-center gap-3">
+                                    <Clock />
+                                    Monthly Overtime Tracker
+                                </h1>
+                                <button
+                                    onClick={() => setShowSettings(true)}
+                                    className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+                                    title="Settings"
+                                >
+                                    <Settings />
+                                    <span>Settings</span>
+                                </button>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+                                        <User />
+                                        Employee Name <span className="text-red-500">*</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={employeeName}
+                                        onChange={(e) => setEmployeeName(e.target.value)}
+                                        className="w-full border border-gray-300 rounded px-3 py-2"
+                                        placeholder="Enter your name to load/save data"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        💾 Your data is automatically saved. Enter your name to load your shifts.
+                                    </p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Month</label>
+                                    <input
+                                        type="month"
+                                        value={currentMonth}
+                                        onChange={(e) => setCurrentMonth(e.target.value)}
+                                        className="w-full border border-gray-300 rounded px-3 py-2"
+                                    />
+                                </div>
+                            </div>
+
+                            {isDataLoaded && employeeName && (
+                                <div className="bg-green-50 border border-green-200 p-3 rounded mb-4">
+                                    <p className="text-sm text-green-800">
+                                        ✓ Loaded data for <strong>{employeeName}</strong> - {currentMonth} ({savedShifts.length} shifts)
+                                    </p>
+                                </div>
+                            )}
+
+                            <div className="bg-gray-50 p-4 rounded-lg mb-4">
+                                <h2 className="text-lg font-bold text-gray-800 mb-4">
+                                    Monthly Summary - {currentMonth}
+                                </h2>
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                                    <div className="bg-white p-3 rounded text-center">
+                                        <div className="text-3xl font-bold text-blue-600">{monthlyTotals.totalShifts}</div>
+                                        <div className="text-xs text-gray-600 mt-1">Shifts</div>
+                                    </div>
+                                    <div className="bg-white p-3 rounded text-center">
+                                        <div className="text-3xl font-bold text-green-600">{monthlyTotals.totalOT.toFixed(0)}</div>
+                                        <div className="text-xs text-gray-600 mt-1">Total OT</div>
+                                    </div>
+                                    <div className="bg-white p-3 rounded text-center">
+                                        <div className="text-3xl font-bold text-orange-600">{monthlyTotals.totalSB.toFixed(0)}</div>
+                                        <div className="text-xs text-gray-600 mt-1">Total SB</div>
+                                    </div>
+                                    <div className="bg-white p-3 rounded text-center">
+                                        <div className="text-3xl font-bold text-purple-600">{monthlyTotals.totalHours.toFixed(0)}</div>
+                                        <div className="text-xs text-gray-600 mt-1">Total Hours</div>
+                                    </div>
+                                    <div className="bg-white p-3 rounded text-center">
+                                        <div className="text-3xl font-bold text-pink-600">{monthlyTotals.totalEmails}</div>
+                                        <div className="text-xs text-gray-600 mt-1">Total Emails</div>
+                                    </div>
+                                    <div className="bg-white p-3 rounded text-center">
+                                        <div className="text-3xl font-bold text-blue-600">{monthlyTotals.totalActionable}</div>
+                                        <div className="text-xs text-gray-600 mt-1">Actionable</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={exportToExcel}
+                                    disabled={savedShifts.length === 0}
+                                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded font-medium ${
+                                        savedShifts.length === 0
+                                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                            : 'bg-blue-600 text-white hover:bg-blue-700'
+                                    }`}
+                                >
+                                    <Download />
+                                    Export Beautiful Report ✨
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        if (confirm('Are you sure you want to clear all shifts for this month?')) {
+                                            setSavedShifts([]);
+                                        }
+                                    }}
+                                    disabled={savedShifts.length === 0}
+                                    className={`flex items-center justify-center gap-2 px-4 py-2 rounded font-medium ${
+                                        savedShifts.length === 0
+                                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                            : 'bg-gray-500 text-white hover:bg-gray-600'
+                                    }`}
+                                >
+                                    <ClearIcon />
+                                    Clear All Shifts
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-lg shadow p-6 mb-6">
+                            <button
+                                onClick={() => setShowAddNewShift(!showAddNewShift)}
+                                className="w-full flex items-center justify-between mb-4"
+                            >
+                                <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                                    <Plus />
+                                    Add New Shift
+                                </h2>
+                                {showAddNewShift ? <ChevronUp /> : <ChevronDown />}
+                            </button>
+
+                            {showAddNewShift && (
+                                <>
+                                    {shiftType === 'stat_holiday' && shiftDate && (
+                                        <div className="bg-gradient-to-r from-red-500 to-red-600 text-white p-4 rounded-lg mb-4 shadow-lg">
+                                            <div className="flex items-center gap-3">
+                                                <div className="text-3xl">🎉</div>
+                                                <div>
+                                                    <h3 className="font-bold text-lg">Statutory Holiday Shift</h3>
+                                                    <p className="text-sm opacity-90">
+                                                        {new Date(shiftDate + 'T12:00:00').toLocaleDateString('en-US', { 
+                                                            weekday: 'long', 
+                                                            year: 'numeric', 
+                                                            month: 'long', 
+                                                            day: 'numeric' 
+                                                        })} • 24 hours (00:00 to 00:00 next day) • Code 263
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="bg-gray-50 p-4 rounded-lg mb-6">
+                                        <h3 className="font-semibold text-gray-700 mb-3">Shift Information</h3>
+                                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                                    Shift Date <span className="text-red-500">*</span>
+                                                </label>
+                                                <input
+                                                    type="date"
+                                                    value={shiftDate}
+                                                    onChange={(e) => setShiftDate(e.target.value)}
+                                                    className="w-full border border-gray-300 rounded px-3 py-2"
+                                                />
+                                                {shiftDate && shiftType === 'stat_holiday' && (
+                                                    <p className="text-xs text-green-600 mt-1 font-medium">
+                                                        📅 {new Date(shiftDate + 'T12:00:00').toLocaleDateString('en-US', { 
+                                                            weekday: 'long', 
+                                                            year: 'numeric', 
+                                                            month: 'long', 
+                                                            day: 'numeric' 
+                                                        })}
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">Shift Type</label>
+                                                <select
+                                                    value={shiftType}
+                                                    onChange={(e) => setShiftType(e.target.value)}
+                                                    className="w-full border border-gray-300 rounded px-3 py-2"
+                                                >
+                                                    <option value="weekday">Weekday (16hr: Mon-Thu)</option>
+                                                    <option value="weekend">Weekend (64hr: Fri-Mon)</option>
+                                                    <option value="stat_holiday">Stat Holiday (24hr: 00:00-00:00)</option>
+                                                </select>
+                                                {shiftType === 'stat_holiday' && (
+                                                    <p className="text-xs text-blue-600 mt-1">
+                                                        ⚡ 24-hour shift with overtime code 263
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">Regular Shift Start</label>
+                                                <input
+                                                    type="time"
+                                                    value={regularShiftStart}
+                                                    onChange={(e) => setRegularShiftStart(e.target.value)}
+                                                    className="w-full border border-gray-300 rounded px-3 py-2"
+                                                    disabled={shiftType === 'stat_holiday'}
+                                                />
+                                                {shiftType === 'stat_holiday' && (
+                                                    <p className="text-xs text-gray-500 mt-1">Fixed at 00:00 for stat holidays</p>
+                                                )}
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">Regular Shift End</label>
+                                                <input
+                                                    type="time"
+                                                    value={regularShiftEnd}
+                                                    onChange={(e) => setRegularShiftEnd(e.target.value)}
+                                                    className="w-full border border-gray-300 rounded px-3 py-2"
+                                                    disabled={shiftType === 'stat_holiday'}
+                                                />
+                                                {shiftType === 'stat_holiday' && (
+                                                    <p className="text-xs text-gray-500 mt-1">Fixed at 00:00 for stat holidays</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="mb-6">
+                                        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                                            <Mail />
+                                            Hourly Email Tracking ({
+                                                shiftType === 'weekday' ? '16:00 - 08:00' : 
+                                                shiftType === 'stat_holiday' ? '00:00 - 00:00 (24 hours)' :
+                                                'Fri 16:00 - Mon 08:00'
+                                            })
+                                        </h3>
+
+                                        {shiftType === 'weekday' ? (
+                                            <>
+                                                <div className="mb-6">
+                                                    <button
+                                                        onClick={() => toggleBlockCollapse('evening')}
+                                                        className="w-full bg-blue-50 text-blue-700 px-4 py-2 rounded flex items-center justify-between mb-3 hover:bg-blue-100"
+                                                    >
+                                                        <span className="font-semibold">Evening Block: 16:00-23:59</span>
+                                                        {collapsedBlocks['evening'] ? <ChevronDown /> : <ChevronUp />}
+                                                    </button>
+                                                    {!collapsedBlocks['evening'] && (
+                                                        <>
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                                                                {currentTimeSlots.slice(0, 8).map((slot, idx) => renderHourlyBlock(slot, idx))}
+                                                            </div>
+                                                            
+                                                            {/* UPDATED: Now collapsible! */}
+                                                            <ExceptionOverrideCard 
+                                                                blockIndex={0}
+                                                                blockName="Evening"
+                                                                emailBasedOT={calculateShiftBlocks()[0]?.emailBasedOT || 0}
+                                                                overrideHours={blockOverrides[0]?.manualOT || 0}
+                                                                overrideReason={blockOverrides[0]?.reason || ''}
+                                                                isOpen={openOverrideCards[0]}
+                                                                onToggle={toggleOverrideCard}
+                                                                onUpdateHours={(idx, val) => updateBlockOverride(idx, 'manualOT', val)}
+                                                                onUpdateReason={(idx, val) => updateBlockOverride(idx, 'reason', val)}
+                                                            />
+                                                        </>
+                                                    )}
+                                                </div>
+
+                                                <div className="mb-6">
+                                                    <button
+                                                        onClick={() => toggleBlockCollapse('morning')}
+                                                        className="w-full bg-purple-50 text-purple-700 px-4 py-2 rounded flex items-center justify-between mb-3 hover:bg-purple-100"
+                                                    >
+                                                        <span className="font-semibold">Morning Block: 00:00-08:00</span>
+                                                        {collapsedBlocks['morning'] ? <ChevronDown /> : <ChevronUp />}
+                                                    </button>
+                                                    {!collapsedBlocks['morning'] && (
+                                                        <>
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                                                                {currentTimeSlots.slice(8, 16).map((slot, idx) => renderHourlyBlock(slot, idx + 8))}
+                                                            </div>
+                                                            
+                                                            {/* UPDATED: Now collapsible! */}
+                                                            <ExceptionOverrideCard 
+                                                                blockIndex={1}
+                                                                blockName="Morning"
+                                                                emailBasedOT={calculateShiftBlocks()[1]?.emailBasedOT || 0}
+                                                                overrideHours={blockOverrides[1]?.manualOT || 0}
+                                                                overrideReason={blockOverrides[1]?.reason || ''}
+                                                                isOpen={openOverrideCards[1]}
+                                                                onToggle={toggleOverrideCard}
+                                                                onUpdateHours={(idx, val) => updateBlockOverride(idx, 'manualOT', val)}
+                                                                onUpdateReason={(idx, val) => updateBlockOverride(idx, 'reason', val)}
+                                                            />
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </>
+                                        ) : shiftType === 'stat_holiday' ? (
+                                            <>
+                                                {/* Stat Holiday - 3 blocks of 8 hours each */}
+                                                <div className="mb-6">
+                                                    <button
+                                                        onClick={() => toggleBlockCollapse('stat-block-1')}
+                                                        className="w-full bg-red-50 text-red-700 px-4 py-2 rounded flex items-center justify-between mb-3 hover:bg-red-100"
+                                                    >
+                                                        <span className="font-semibold">Block 1: 00:00-08:00 [OT Code: 263]</span>
+                                                        {collapsedBlocks['stat-block-1'] ? <ChevronDown /> : <ChevronUp />}
+                                                    </button>
+                                                    {!collapsedBlocks['stat-block-1'] && (
+                                                        <>
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                                                                {currentTimeSlots.slice(0, 8).map((slot, idx) => renderHourlyBlock(slot, idx))}
+                                                            </div>
+                                                            
+                                                            <ExceptionOverrideCard 
+                                                                blockIndex={0}
+                                                                blockName="Block 1"
+                                                                emailBasedOT={calculateShiftBlocks()[0]?.emailBasedOT || 0}
+                                                                overrideHours={blockOverrides[0]?.manualOT || 0}
+                                                                overrideReason={blockOverrides[0]?.reason || ''}
+                                                                isOpen={openOverrideCards[0]}
+                                                                onToggle={toggleOverrideCard}
+                                                                onUpdateHours={(idx, val) => updateBlockOverride(idx, 'manualOT', val)}
+                                                                onUpdateReason={(idx, val) => updateBlockOverride(idx, 'reason', val)}
+                                                            />
+                                                        </>
+                                                    )}
+                                                </div>
+
+                                                <div className="mb-6">
+                                                    <button
+                                                        onClick={() => toggleBlockCollapse('stat-block-2')}
+                                                        className="w-full bg-orange-50 text-orange-700 px-4 py-2 rounded flex items-center justify-between mb-3 hover:bg-orange-100"
+                                                    >
+                                                        <span className="font-semibold">Block 2: 08:00-16:00 [OT Code: 263]</span>
+                                                        {collapsedBlocks['stat-block-2'] ? <ChevronDown /> : <ChevronUp />}
+                                                    </button>
+                                                    {!collapsedBlocks['stat-block-2'] && (
+                                                        <>
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                                                                {currentTimeSlots.slice(8, 16).map((slot, idx) => renderHourlyBlock(slot, idx + 8))}
+                                                            </div>
+                                                            
+                                                            <ExceptionOverrideCard 
+                                                                blockIndex={1}
+                                                                blockName="Block 2"
+                                                                emailBasedOT={calculateShiftBlocks()[1]?.emailBasedOT || 0}
+                                                                overrideHours={blockOverrides[1]?.manualOT || 0}
+                                                                overrideReason={blockOverrides[1]?.reason || ''}
+                                                                isOpen={openOverrideCards[1]}
+                                                                onToggle={toggleOverrideCard}
+                                                                onUpdateHours={(idx, val) => updateBlockOverride(idx, 'manualOT', val)}
+                                                                onUpdateReason={(idx, val) => updateBlockOverride(idx, 'reason', val)}
+                                                            />
+                                                        </>
+                                                    )}
+                                                </div>
+
+                                                <div className="mb-6">
+                                                    <button
+                                                        onClick={() => toggleBlockCollapse('stat-block-3')}
+                                                        className="w-full bg-yellow-50 text-yellow-700 px-4 py-2 rounded flex items-center justify-between mb-3 hover:bg-yellow-100"
+                                                    >
+                                                        <span className="font-semibold">Block 3: 16:00-00:00 [OT Code: 263]</span>
+                                                        {collapsedBlocks['stat-block-3'] ? <ChevronDown /> : <ChevronUp />}
+                                                    </button>
+                                                    {!collapsedBlocks['stat-block-3'] && (
+                                                        <>
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                                                                {currentTimeSlots.slice(16, 24).map((slot, idx) => renderHourlyBlock(slot, idx + 16))}
+                                                            </div>
+                                                            
+                                                            <ExceptionOverrideCard 
+                                                                blockIndex={2}
+                                                                blockName="Block 3"
+                                                                emailBasedOT={calculateShiftBlocks()[2]?.emailBasedOT || 0}
+                                                                overrideHours={blockOverrides[2]?.manualOT || 0}
+                                                                overrideReason={blockOverrides[2]?.reason || ''}
+                                                                isOpen={openOverrideCards[2]}
+                                                                onToggle={toggleOverrideCard}
+                                                                onUpdateHours={(idx, val) => updateBlockOverride(idx, 'manualOT', val)}
+                                                                onUpdateReason={(idx, val) => updateBlockOverride(idx, 'reason', val)}
+                                                            />
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <>
+                                                {['Friday Evening', 'Saturday Morning', 'Saturday Afternoon', 'Saturday Evening', 
+                                                  'Sunday Morning', 'Sunday Afternoon', 'Sunday Evening', 'Monday Morning'].map((blockName, blockIdx) => {
+                                                    const startIdx = blockIdx * 8;
+                                                    const blockKey = blockName.toLowerCase().replace(' ', '-');
+                                                    const colors = ['blue', 'green', 'yellow', 'purple', 'pink', 'indigo', 'red', 'teal'];
+                                                    const color = colors[blockIdx];
+                                                    
+                                                    return (
+                                                        <div key={blockIdx} className="mb-4">
+                                                            <button
+                                                                onClick={() => toggleBlockCollapse(blockKey)}
+                                                                className={`w-full bg-${color}-50 text-${color}-700 px-4 py-2 rounded flex items-center justify-between mb-3 hover:bg-${color}-100`}
+                                                            >
+                                                                <span className="font-semibold">
+                                                                    {blockName} [OT Code: {getWeekendBlockCode(blockIdx)}]
+                                                                </span>
+                                                                {collapsedBlocks[blockKey] ? <ChevronDown /> : <ChevronUp />}
+                                                            </button>
+                                                            {!collapsedBlocks[blockKey] && (
+                                                                <>
+                                                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                                                                        {currentTimeSlots.slice(startIdx, startIdx + 8).map((slot, idx) => 
+                                                                            renderHourlyBlock(slot, startIdx + idx)
+                                                                        )}
+                                                                    </div>
+                                                                    
+                                                                    {/* UPDATED: Now collapsible! */}
+                                                                    <ExceptionOverrideCard 
+                                                                        blockIndex={blockIdx}
+                                                                        blockName={blockName}
+                                                                        emailBasedOT={calculateShiftBlocks()[blockIdx]?.emailBasedOT || 0}
+                                                                        overrideHours={blockOverrides[blockIdx]?.manualOT || 0}
+                                                                        overrideReason={blockOverrides[blockIdx]?.reason || ''}
+                                                                        isOpen={openOverrideCards[blockIdx]}
+                                                                        onToggle={toggleOverrideCard}
+                                                                        onUpdateHours={(idx, val) => updateBlockOverride(idx, 'manualOT', val)}
+                                                                        onUpdateReason={(idx, val) => updateBlockOverride(idx, 'reason', val)}
+                                                                    />
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </>
+                                        )}
+                                    </div>
+
+                                    <div className="bg-gray-50 p-4 rounded-lg mb-6">
+                                        <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                                            <Calculator />
+                                            Shift Calculations
+                                        </h3>
+                                        
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                            {shiftTotals.blocks.map((block, idx) => (
+                                                <div key={idx} className={`bg-white border-2 p-3 rounded ${
+                                                    block.hasOverride ? 'border-orange-400 bg-orange-50' : 'border-blue-200'
+                                                }`}>
+                                                    <div className={`font-semibold ${block.hasOverride ? 'text-orange-700' : 'text-blue-700'} flex items-center gap-1`}>
+                                                        {block.hasOverride && '⚠️'} {block.name} Block ({block.timeRange})
+                                                    </div>
+                                                    <div className="text-sm mt-1">Actionable: {block.totalActionable}</div>
+                                                    {block.hasOverride && (
+                                                        <>
+                                                            <div className="text-sm text-gray-600">Email OT: {(block.emailBasedOT || 0).toFixed(2)}</div>
+                                                            <div className="text-sm text-orange-600 font-bold">Override OT: +{(block.manualOverrideOT || 0).toFixed(2)}</div>
+                                                        </>
+                                                    )}
+                                                    <div className="text-sm font-bold">Total OT: {(block.totalBlockOT || 0).toFixed(2)}</div>
+                                                    <div className="text-sm">SB: {(block.blockSB || 0).toFixed(2)}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        <div className="bg-green-50 border-2 border-green-500 p-4 rounded-lg">
+                                            <div className="text-lg font-bold text-gray-800 mb-3">Shift Totals</div>
+                                            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-center">
+                                                <div>
+                                                    <div className="text-3xl font-bold text-blue-600">{shiftTotals.totalEmails}</div>
+                                                    <div className="text-xs text-gray-600">Total Emails</div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-3xl font-bold text-blue-600">{shiftTotals.totalActionable}</div>
+                                                    <div className="text-xs text-gray-600">Actionable</div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-3xl font-bold text-green-600">{shiftTotals.totalOT}</div>
+                                                    <div className="text-xs text-gray-600">OT Hours</div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-3xl font-bold text-orange-600">{shiftTotals.totalSB}</div>
+                                                    <div className="text-xs text-gray-600">SB Hours</div>
+                                                </div>
+                                                <div>
+                                                    <div className="text-3xl font-bold text-purple-600">Code {getOvertimeCode(shiftDate)}</div>
+                                                    <div className="text-xs text-gray-600">OT Code</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="mb-6">
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">Shift Notes</label>
+                                        <textarea
+                                            value={shiftNotes}
+                                            onChange={(e) => setShiftNotes(e.target.value)}
+                                            className="w-full border border-gray-300 rounded px-3 py-2 h-24"
+                                            placeholder="Add any additional notes about this shift..."
+                                        />
+                                    </div>
+
+                                    <div className="flex gap-3">
+                                        <button
+                                            onClick={handleSaveShift}
+                                            className="flex-1 bg-green-600 text-white px-6 py-3 rounded font-semibold hover:bg-green-700 flex items-center justify-center gap-2"
+                                        >
+                                            <Save />
+                                            Save Shift
+                                        </button>
+                                        <button
+                                            onClick={handleClearForm}
+                                            className="bg-gray-500 text-white px-6 py-3 rounded font-semibold hover:bg-gray-600"
+                                        >
+                                            Clear Form
+                                        </button>
+                                    </div>
+
+                                    <div className="mt-6 bg-blue-50 border border-blue-200 p-4 rounded">
+                                        <div className="text-sm font-semibold text-blue-900 mb-2">💡 How to use:</div>
+                                        <ul className="text-xs text-blue-800 space-y-1 list-disc list-inside">
+                                            <li><strong>Enter your name</strong> at the top - your data will automatically save and load</li>
+                                            <li>Fill in shift data and click "Save Shift" to add it to your monthly tracker</li>
+                                            <li>All data is saved locally in your browser - close and reopen anytime</li>
+                                            <li><strong className="text-orange-700">➕ Exception Override:</strong> Click the button to add manual OT for non-email work</li>
+                                            <li>Each hour's OT is calculated as: Actionable Emails × 15 minutes (capped at 1 hour)</li>
+                                            <li>Block OT is calculated as: Email-based OT + Manual Override (capped at 8 hours)</li>
+                                        </ul>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+
+                        {savedShifts.length > 0 && (
+                            <div className="bg-white rounded-lg shadow p-6">
+                                <h2 className="text-xl font-bold text-gray-800 mb-4">Saved Shifts ({savedShifts.length})</h2>
+                                <div className="space-y-3">
+                                    {savedShifts.map(shift => {
+                                        const shiftEmails = shift.emailData.reduce((sum, slot) => sum + slot.total, 0);
+                                        const shiftActionable = shift.emailData.reduce((sum, slot) => sum + slot.actionable, 0);
+                                        const hasOverrides = shift.blocks?.some(b => b.hasOverride);
+                                        
+                                        return (
+                                            <div key={shift.id} className={`border rounded p-4 hover:bg-gray-50 ${
+                                                hasOverrides ? 'border-orange-300 bg-orange-50' : 'border-gray-200'
+                                            }`}>
+                                                <div className="flex justify-between items-start">
+                                                    <div className="flex-1">
+                                                        <div className="font-semibold text-lg text-gray-800 flex items-center gap-2">
+                                                            {shift.date}
+                                                            {hasOverrides && <span className="text-orange-600 text-sm">⚠️ Has Overrides</span>}
+                                                        </div>
+                                                        <div className="text-sm text-gray-600">
+                                                            {shift.shiftType === 'weekday' ? 'Weekday (16 hours)' : 'Weekend (64 hours)'} - OT Code: {shift.overtimeCode}
+                                                        </div>
+                                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2 text-sm">
+                                                            <div><span className="font-medium">OT:</span> {shift.totalOT}h</div>
+                                                            <div><span className="font-medium">SB:</span> {shift.totalSB}h</div>
+                                                            <div><span className="font-medium">Emails:</span> {shiftEmails}</div>
+                                                            <div><span className="font-medium">Actionable:</span> {shiftActionable}</div>
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => handleDeleteShift(shift.id)}
+                                                        className="bg-red-600 text-white p-2 rounded hover:bg-red-700 ml-4"
+                                                    >
+                                                        <Trash />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<MonthlyOTTracker />, document.getElementById('root'));
+    </script>
+    
+    <!-- PWA and App Initialization -->
+    <script>
+        // Hide splash screen after app loads
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                const splash = document.getElementById('splash-screen');
+                splash.classList.add('hidden');
+                setTimeout(() => splash.remove(), 500);
+            }, 1000);
+        });
+        
+        // PWA Installation
+        let deferredPrompt;
+        const installPrompt = document.getElementById('install-prompt');
+        const installButton = document.getElementById('install-button');
+        const dismissButton = document.getElementById('dismiss-button');
+        
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            
+            // Show install prompt after a delay
+            setTimeout(() => {
+                installPrompt.style.display = 'flex';
+            }, 3000);
+        });
+        
+        installButton.addEventListener('click', async () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                console.log(`User response to install prompt: ${outcome}`);
+                deferredPrompt = null;
+                installPrompt.style.display = 'none';
+            }
+        });
+        
+        dismissButton.addEventListener('click', () => {
+            installPrompt.style.display = 'none';
+        });
+        
+        // Register service worker for PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('service-worker.js')
+                    .then(registration => {
+                        console.log('Service Worker registered:', registration);
+                    })
+                    .catch(error => {
+                        console.log('Service Worker registration failed:', error);
+                    });
+            });
+        }
+    </script>
+</body>
+</html>
