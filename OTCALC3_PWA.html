@@ -1268,7 +1268,7 @@
                             properties: { tabColor: { argb: 'FF4472C4' } }
                         });
 
-                        ws.mergeCells('A1:J1');
+                        ws.mergeCells('A1:K1');  // UPDATED: K instead of J (Hours column added)
                         const shiftTitle = ws.getCell('A1');
                         shiftTitle.value = `📅 SHIFT DETAIL - ${shift.date}`;
                         shiftTitle.font = { size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
@@ -1299,7 +1299,7 @@
 
                         ws.addRow([]);
 
-                        ws.mergeCells('A9:J9');
+                        ws.mergeCells('A9:K9');  // UPDATED: K instead of J (Hours column added)
                         ws.getCell('A9').value = 'BLOCK CALCULATIONS';
                         ws.getCell('A9').font = { bold: true, size: 12, color: { argb: 'FFFFFFFF' } };
                         ws.getCell('A9').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } };
@@ -1307,7 +1307,7 @@
                         ws.getRow(9).height = 25;
 
                         const blockHeaderRow = ws.getRow(10);
-                        const blockHeaders = ['Block', 'StartTime', 'EndTime', 'Actionable', 'TotalEmails', 'Email OT', 'Override OT', 'Total OT', 'SB', 'Code'];
+                        const blockHeaders = ['Block', 'Hours', 'StartTime', 'EndTime', 'Actionable', 'TotalEmails', 'Email OT', 'Override OT', 'Total OT', 'SB', 'Code'];
                         blockHeaders.forEach((header, idx) => {
                             const cell = blockHeaderRow.getCell(idx + 1);
                             cell.value = header;
@@ -1321,6 +1321,7 @@
                             const blockRow = ws.getRow(11 + idx);
                             blockRow.values = [
                                 block.name || '',
+                                block.blockHours || 8,  // NEW: Show block hours (8 or partial)
                                 (block.timeRange || '').split('-')[0],
                                 (block.timeRange || '').split('-')[1],
                                 block.totalActionable || 0,
@@ -1348,14 +1349,17 @@
                                         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
                                     }
                                 }
-                                
-                                if (colNumber === 10) {
+
+                                // UPDATED: Code column is now 11 (was 10 before Hours column added)
+                                if (colNumber === 11) {
                                     if (cell.value === '260') {
                                         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
                                     } else if (cell.value === '261') {
                                         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4D6' } };
                                     } else if (cell.value === '262') {
                                         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDDEBF7' } };
+                                    } else if (cell.value === '263') {
+                                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE4E1' } };
                                     }
                                     cell.font = { bold: true };
                                 }
@@ -1374,8 +1378,8 @@
                         if (hasOverrides) {
                             const overrideSectionStart = 11 + shift.blocks.length + 1;
                             ws.addRow([]);
-                            
-                            ws.mergeCells(`A${overrideSectionStart}:J${overrideSectionStart}`);
+
+                            ws.mergeCells(`A${overrideSectionStart}:K${overrideSectionStart}`);  // UPDATED: K instead of J (Hours column added)
                             ws.getCell(`A${overrideSectionStart}`).value = '⚠️ OVERTIME OVERRIDES';
                             ws.getCell(`A${overrideSectionStart}`).font = { bold: true, size: 12, color: { argb: 'FFFFFFFF' } };
                             ws.getCell(`A${overrideSectionStart}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF9800' } };
@@ -1467,16 +1471,17 @@
                             ws.addRow(['Shift Notes:', shift.notes]);
                         }
 
-                        ws.getColumn(1).width = 18;
-                        ws.getColumn(2).width = 12;
-                        ws.getColumn(3).width = 12;
-                        ws.getColumn(4).width = 14;
-                        ws.getColumn(5).width = 10;
-                        ws.getColumn(6).width = 12;
-                        ws.getColumn(7).width = 10;
-                        ws.getColumn(8).width = 10;
-                        ws.getColumn(9).width = 10;
-                        ws.getColumn(10).width = 30;
+                        ws.getColumn(1).width = 18;   // Block
+                        ws.getColumn(2).width = 8;    // Hours (NEW)
+                        ws.getColumn(3).width = 12;   // StartTime
+                        ws.getColumn(4).width = 12;   // EndTime
+                        ws.getColumn(5).width = 14;   // Actionable
+                        ws.getColumn(6).width = 10;   // TotalEmails
+                        ws.getColumn(7).width = 12;   // Email OT
+                        ws.getColumn(8).width = 10;   // Override OT
+                        ws.getColumn(9).width = 10;   // Total OT
+                        ws.getColumn(10).width = 10;  // SB
+                        ws.getColumn(11).width = 30;  // Code
                     });
 
                     // All Shifts Detail sheet - keeping identical
@@ -1515,8 +1520,9 @@
                         
                         shift.timeSlots.forEach((slot, idx) => {
                             const hourOTSB = calculateHourlyOTSB(shift.emailData[idx]?.actionable || 0, shift.emailData[idx]?.calls || 0);
-                            const shiftTypeLabel = shift.shiftType === 'weekday' ? 'Weekday' 
-                                : shift.shiftType === 'stat_holiday' ? 'Stat Holiday' 
+                            const shiftTypeLabel = shift.shiftType === 'weekday' ? 'Weekday'
+                                : shift.shiftType === 'stat_holiday' ? 'Stat Holiday'
+                                : shift.shiftType === 'custom' ? 'Custom'
                                 : 'Weekend';
                             const row = allShiftsSheet.getRow(currentRow);
                             row.values = [
