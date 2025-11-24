@@ -247,12 +247,53 @@
         );
 
         // Helper functions (all unchanged)
+        // Block color classes for custom shifts (Tailwind-safe static classes)
+        const BLOCK_COLOR_CLASSES = [
+            'bg-indigo-50 text-indigo-700 border-2 border-indigo-300 hover:bg-indigo-100',
+            'bg-purple-50 text-purple-700 border-2 border-purple-300 hover:bg-purple-100',
+            'bg-pink-50 text-pink-700 border-2 border-pink-300 hover:bg-pink-100',
+            'bg-blue-50 text-blue-700 border-2 border-blue-300 hover:bg-blue-100',
+            'bg-green-50 text-green-700 border-2 border-green-300 hover:bg-green-100',
+            'bg-yellow-50 text-yellow-700 border-2 border-yellow-300 hover:bg-yellow-100',
+            'bg-orange-50 text-orange-700 border-2 border-orange-300 hover:bg-orange-100',
+            'bg-red-50 text-red-700 border-2 border-red-300 hover:bg-red-100',
+            'bg-teal-50 text-teal-700 border-2 border-teal-300 hover:bg-teal-100',
+            'bg-cyan-50 text-cyan-700 border-2 border-cyan-300 hover:bg-cyan-100',
+            'bg-lime-50 text-lime-700 border-2 border-lime-300 hover:bg-lime-100',
+            'bg-emerald-50 text-emerald-700 border-2 border-emerald-300 hover:bg-emerald-100',
+            'bg-sky-50 text-sky-700 border-2 border-sky-300 hover:bg-sky-100',
+            'bg-violet-50 text-violet-700 border-2 border-violet-300 hover:bg-violet-100',
+            'bg-fuchsia-50 text-fuchsia-700 border-2 border-fuchsia-300 hover:bg-fuchsia-100',
+            'bg-rose-50 text-rose-700 border-2 border-rose-300 hover:bg-rose-100',
+            'bg-amber-50 text-amber-700 border-2 border-amber-300 hover:bg-amber-100',
+            'bg-slate-50 text-slate-700 border-2 border-slate-300 hover:bg-slate-100',
+            'bg-gray-50 text-gray-700 border-2 border-gray-300 hover:bg-gray-100',
+            'bg-zinc-50 text-zinc-700 border-2 border-zinc-300 hover:bg-zinc-100',
+            'bg-stone-50 text-stone-700 border-2 border-stone-300 hover:bg-stone-100'
+        ];
+
         function getCurrentMonth() {
             const now = new Date();
             return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
         }
 
-        const generateTimeSlots = (shiftType) => {
+        const generateTimeSlots = (shiftType, customHours = null, customStart = '00:00') => {
+            // Handle custom shifts
+            if (shiftType === 'custom' && customHours) {
+                const slots = [];
+                const [startHour, startMin] = customStart.split(':').map(Number);
+
+                for (let i = 0; i < customHours; i++) {
+                    const currentHour = (startHour + i) % 24;
+                    const nextHour = (startHour + i + 1) % 24;
+                    const start = `${String(currentHour).padStart(2, '0')}:00`;
+                    const end = `${String(nextHour).padStart(2, '0')}:00`;
+                    slots.push(`${start}-${end}`);
+                }
+                return slots;
+            }
+
+            // Existing logic for other shift types
             if (shiftType === 'weekday') {
                 return [
                     '16:00-17:00', '17:00-18:00', '18:00-19:00', '19:00-20:00',
@@ -463,6 +504,11 @@
             const [shiftType, setShiftType] = useState('weekday');
             const [regularShiftStart, setRegularShiftStart] = useState('16:00');
             const [regularShiftEnd, setRegularShiftEnd] = useState('00:00');
+
+            // NEW: Custom shift state variables
+            const [customShiftHours, setCustomShiftHours] = useState(8); // Default 8 hours
+            const [customShiftStart, setCustomShiftStart] = useState('00:00'); // Default midnight
+
             const [emailData, setEmailData] = useState(Array(16).fill().map(() => ({ 
                 total: 0, 
                 actionable: 0, 
@@ -1521,7 +1567,11 @@
                 }
             };
 
-            const currentTimeSlots = generateTimeSlots(shiftType);
+            const currentTimeSlots = generateTimeSlots(
+                shiftType,
+                shiftType === 'custom' ? customShiftHours : null,
+                shiftType === 'custom' ? customShiftStart : null
+            );
             const shiftTotals = calculateShiftTotals();
             const monthlyTotals = calculateMonthlyTotals();
 
