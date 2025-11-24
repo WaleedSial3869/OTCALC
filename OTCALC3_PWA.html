@@ -622,23 +622,26 @@
 
             useEffect(() => {
                 let newSize, numBlocks;
-                
+
                 if (shiftType === 'weekday') {
                     newSize = 16;
                     numBlocks = 2;
                 } else if (shiftType === 'stat_holiday') {
                     newSize = 24;
                     numBlocks = 3;
+                } else if (shiftType === 'custom') {
+                    newSize = customShiftHours;  // Custom: Use configured hours
+                    numBlocks = Math.ceil(customShiftHours / 8);  // Custom: Dynamic block count
                 } else { // weekend
                     newSize = 64;
                     numBlocks = 8;
                 }
-                
-                setEmailData(Array(newSize).fill().map(() => ({ 
-                    total: 0, 
-                    actionable: 0, 
+
+                setEmailData(Array(newSize).fill().map(() => ({
+                    total: 0,
+                    actionable: 0,
                     calls: 0,
-                    comment: '' 
+                    comment: ''
                 })));
 
                 const newOverrides = {};
@@ -646,16 +649,16 @@
                     newOverrides[i] = { manualOT: 0, reason: '' };
                 }
                 setBlockOverrides(newOverrides);
-                
+
                 // Reset open override cards
                 setOpenOverrideCards({});
-                
+
                 // Update shift times for stat holidays
                 if (shiftType === 'stat_holiday') {
                     setRegularShiftStart('00:00');
                     setRegularShiftEnd('00:00');
                 }
-            }, [shiftType]);
+            }, [shiftType, customShiftHours]);  // UPDATED: Add customShiftHours dependency
 
             // Auto-detect stat holidays when date changes
             useEffect(() => {
@@ -811,6 +814,26 @@
                     totalCalls,
                     blocks
                 };
+            };
+
+            // Form data loss protection when switching shift types
+            const handleShiftTypeChange = (newType) => {
+                // Check if there's any data entered
+                const hasData = emailData.some(slot =>
+                    slot.total > 0 || slot.actionable > 0 || slot.calls > 0 || slot.comment.trim().length > 0
+                );
+
+                // If switching away from current type with data, confirm
+                if (hasData && newType !== shiftType) {
+                    const confirmed = window.confirm(
+                        'Changing shift type will reset all entered email/call data and manual overrides. Continue?'
+                    );
+                    if (!confirmed) {
+                        return;  // User cancelled, don't change
+                    }
+                }
+
+                setShiftType(newType);
             };
 
             const handleSaveShift = () => {
@@ -2188,7 +2211,7 @@
                                                 <label className="block text-sm font-medium text-gray-700 mb-1">Shift Type</label>
                                                 <select
                                                     value={shiftType}
-                                                    onChange={(e) => setShiftType(e.target.value)}
+                                                    onChange={(e) => handleShiftTypeChange(e.target.value)}
                                                     className="w-full border border-gray-300 rounded px-3 py-2"
                                                 >
                                                     <option value="weekday">Weekday (16hr: Mon-Thu)</option>
