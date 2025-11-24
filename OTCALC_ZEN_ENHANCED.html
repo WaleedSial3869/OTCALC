@@ -258,24 +258,96 @@
             return `ot_tracker_${employeeName.toLowerCase().replace(/\s+/g, '_')}`;
         };
 
+        // --- CROSS-MONTH DETECTION ---
+
+        const detectCrossMonth = (shiftDate, shiftType, customStart = '00:00', customEnd = '08:00') => {
+            const startDate = new Date(shiftDate + 'T12:00:00');
+            const startMonth = startDate.getMonth();
+
+            let durationHours = 0;
+
+            if (shiftType === 'weekday') {
+                durationHours = 16;
+            } else if (shiftType === 'weekend') {
+                durationHours = 64;
+            } else if (shiftType === 'stat_holiday') {
+                durationHours = 24;
+            } else if (shiftType === 'custom') {
+                durationHours = calculateHoursBetween(customStart, customEnd);
+            }
+
+            // Calculate end date
+            const endDate = new Date(startDate);
+            endDate.setHours(endDate.getHours() + durationHours);
+            const endMonth = endDate.getMonth();
+
+            return startMonth !== endMonth;
+        };
+
         // --- COMPONENTS ---
 
-        const Dashboard = ({ shifts, settings, onNewShift, onDeleteShift, onUpdateSettings, onExport, welcomeMessage }) => {
-            const currentMonth = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
+        const Dashboard = ({ shifts, settings, onNewShift, onDeleteShift, onUpdateSettings, onExport, welcomeMessage, selectedMonth, onMonthChange }) => {
+            // Filter shifts for selected month
+            const filteredShifts = useMemo(() => {
+                return shifts.filter(shift => {
+                    const shiftDate = new Date(shift.date + 'T12:00:00');
+                    const shiftMonth = `${shiftDate.getFullYear()}-${String(shiftDate.getMonth() + 1).padStart(2, '0')}`;
+                    return shiftMonth === selectedMonth;
+                });
+            }, [shifts, selectedMonth]);
 
-            const totalOT = shifts.reduce((sum, s) => sum + s.totalOT, 0);
-            const totalShifts = shifts.length;
+            const totalOT = filteredShifts.reduce((sum, s) => sum + s.totalOT, 0);
+            const totalShifts = filteredShifts.length;
+
+            // Format month display
+            const [year, month] = selectedMonth.split('-');
+            const monthDate = new Date(parseInt(year), parseInt(month) - 1, 1);
+            const monthDisplay = monthDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+
+            const handlePrevMonth = () => {
+                const date = new Date(parseInt(year), parseInt(month) - 1, 1);
+                date.setMonth(date.getMonth() - 1);
+                const newMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                onMonthChange(newMonth);
+            };
+
+            const handleNextMonth = () => {
+                const date = new Date(parseInt(year), parseInt(month) - 1, 1);
+                date.setMonth(date.getMonth() + 1);
+                const newMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                onMonthChange(newMonth);
+            };
 
             return (
                 <div className="max-w-2xl mx-auto space-y-6 pb-20 animate-fade-in px-4 pt-6">
                     {/* Header */}
-                    <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                        <div>
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                        <div className="flex justify-between items-center mb-4">
                             <h1 className="text-2xl font-bold text-gray-900 tracking-tight">OTCALC Zen</h1>
-                            <p className="text-gray-500 text-sm font-medium">{currentMonth}</p>
+                            <div className="bg-blue-50 text-blue-700 px-4 py-1.5 rounded-full text-xs font-bold tracking-wide uppercase">
+                                {settings.employeeName || 'Guest'}
+                            </div>
                         </div>
-                        <div className="bg-blue-50 text-blue-700 px-4 py-1.5 rounded-full text-xs font-bold tracking-wide uppercase">
-                            {settings.employeeName || 'Guest'}
+                        {/* Month Navigation */}
+                        <div className="flex items-center justify-center gap-4 bg-gray-50 p-3 rounded-xl">
+                            <button
+                                onClick={handlePrevMonth}
+                                className="p-2 hover:bg-white rounded-lg transition-colors text-gray-600 hover:text-blue-600"
+                                aria-label="Previous month"
+                            >
+                                <ChevronLeft />
+                            </button>
+                            <div className="text-center min-w-[180px]">
+                                <div className="text-sm font-bold text-gray-900">{monthDisplay}</div>
+                                <div className="text-xs text-gray-500">{totalShifts} shifts</div>
+                            </div>
+                            <button
+                                onClick={handleNextMonth}
+                                className="p-2 hover:bg-white rounded-lg transition-colors text-gray-600 hover:text-blue-600"
+                                aria-label="Next month"
+                            >
+                                <ChevronRight />
+                            </button>
                         </div>
                     </div>
 
@@ -337,26 +409,41 @@
 
                     {/* Recent Shifts List */}
                     <div className="space-y-3">
-                        <h3 className="text-lg font-bold text-gray-800 px-1">Recent History</h3>
-                        {shifts.length === 0 ? (
+                        <h3 className="text-lg font-bold text-gray-800 px-1">Shifts This Month</h3>
+                        {filteredShifts.length === 0 ? (
                             <div className="text-center py-12 text-gray-400 bg-white rounded-2xl border-2 border-dashed border-gray-200">
                                 <p>No shifts logged this month.</p>
                                 <p className="text-sm mt-1 opacity-70">Tap "New Shift" to start tracking.</p>
                             </div>
                         ) : (
-                            shifts.slice().reverse().map(shift => {
+                            filteredShifts.slice().reverse().map(shift => {
                                 const shiftType = shift.shiftType || shift.type; // Support both field names
+                                const isCrossMonth = detectCrossMonth(
+                                    shift.date,
+                                    shiftType,
+                                    shift.customStartTime || shift.regularShiftStart || '00:00',
+                                    shift.customShiftEnd || shift.regularShiftEnd || '08:00'
+                                );
+
                                 return (
                                     <div key={shift.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center group active:bg-gray-50 transition-colors">
                                         <div className="flex items-center gap-4">
-                                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-lg font-bold shadow-sm
+                                            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-lg font-bold shadow-sm relative
                                                 ${shiftType === 'weekend' ? 'bg-purple-100 text-purple-600' :
                                                 shiftType === 'stat_holiday' ? 'bg-red-100 text-red-600' :
                                                 shiftType === 'custom' ? 'bg-indigo-100 text-indigo-600' : 'bg-blue-100 text-blue-600'}`}>
                                                 {shift.date.split('-')[2]}
+                                                {isCrossMonth && (
+                                                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-orange-500 rounded-full flex items-center justify-center text-white text-xs">⚠</span>
+                                                )}
                                             </div>
                                             <div>
-                                                <div className="font-bold text-gray-900 capitalize text-sm sm:text-base">{shiftType.replace('_', ' ')}</div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-bold text-gray-900 capitalize text-sm sm:text-base">{shiftType.replace('_', ' ')}</span>
+                                                    {isCrossMonth && (
+                                                        <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">Cross-month</span>
+                                                    )}
+                                                </div>
                                                 <div className="text-xs text-gray-500 flex gap-2 font-medium mt-0.5">
                                                     <span className="bg-gray-100 px-1.5 py-0.5 rounded">OT: {shift.totalOT.toFixed(2)}h</span>
                                                     <span className="bg-gray-100 px-1.5 py-0.5 rounded">SB: {shift.totalSB.toFixed(2)}h</span>
@@ -598,11 +685,29 @@
 
             // Step 1: Config
             if (step === 1) {
+                // Check for cross-month shift
+                const isCrossMonth = detectCrossMonth(date, type, customStart, customEnd);
+
                 return (
                     <div className="max-w-md mx-auto bg-white min-h-screen flex flex-col animate-fade-in sm:border-x sm:border-gray-100">
                         <div className="p-6">
                             <h2 className="text-2xl font-bold text-gray-900 mb-1">New Shift</h2>
                             <p className="text-gray-500 text-sm mb-8">Select the date and type of shift.</p>
+
+                            {/* Cross-month warning */}
+                            {isCrossMonth && (
+                                <div className="bg-orange-50 border border-orange-200 p-4 rounded-xl mb-6 animate-slide-up">
+                                    <div className="flex items-start gap-3">
+                                        <span className="text-orange-500 text-lg">⚠️</span>
+                                        <div>
+                                            <div className="font-bold text-orange-900 text-sm">Cross-Month Shift</div>
+                                            <p className="text-xs text-orange-700 mt-1">
+                                                This shift spans multiple months. It will be saved to the month of the start date ({new Date(date + 'T12:00:00').toLocaleString('default', { month: 'long', year: 'numeric' })}).
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
 
                             <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Date</label>
                             <div className="relative mb-8 group">
@@ -917,6 +1022,13 @@
             });
             const [welcomeMessage, setWelcomeMessage] = useState('');
 
+            // Current month in YYYY-MM format
+            const currentMonthKey = () => {
+                const now = new Date();
+                return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            };
+            const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
+
             // Load data on mount - try to load settings first
             useEffect(() => {
                 const savedSettings = localStorage.getItem('ot_tracker_settings');
@@ -1063,6 +1175,8 @@
                             onUpdateSettings={handleUpdateSettings}
                             onExport={handleExport}
                             welcomeMessage={welcomeMessage}
+                            selectedMonth={selectedMonth}
+                            onMonthChange={setSelectedMonth}
                         />
                     ) : (
                         <ShiftWizard
