@@ -547,7 +547,7 @@
                         </button>
                         <button
                             onClick={onExport}
-                            disabled={shifts.length === 0}
+                            disabled={completedShifts.length === 0}
                             className="bg-white hover:bg-gray-50 active:scale-95 transition-all text-gray-700 border border-gray-200 p-4 rounded-2xl font-bold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             <Download /> Export
@@ -705,10 +705,10 @@
             const [activeHourIndex, setActiveHourIndex] = useState(null);
             const [collapsedBlocks, setCollapsedBlocks] = useState({});
 
-            // Initialize data when type/date changes (but not on initial mount in edit mode)
+            // Initialize data when type/date changes (but not when in edit mode with existing data)
             useEffect(() => {
-                // Skip initialization if we're in edit mode and already have data
-                if (isEditMode && hourlyData.length > 0) {
+                // Skip initialization only if we're in edit mode and this is the first render
+                if (isEditMode && editingShift && (editingShift.hourlyData?.length > 0 || editingShift.emailData?.length > 0)) {
                     return;
                 }
 
@@ -734,7 +734,7 @@
                     newOverrides[i] = { manualOT: 0, reason: '' };
                 }
                 setBlockOverrides(newOverrides);
-            }, [type, date, customStart, customEnd]);
+            }, [type, customStart, customEnd]);
 
             const updateHour = (index, field, value) => {
                 const newData = [...hourlyData];
