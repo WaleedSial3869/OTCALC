@@ -250,6 +250,9 @@
         const Settings = () => (
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6m6-12h6m-6 6h6M1 12h6m0 0h6"></path></svg>
         );
+        const Edit = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+        );
 
         // --- STORAGE KEY HELPERS ---
 
@@ -406,7 +409,7 @@
             );
         };
 
-        const Dashboard = ({ shifts, settings, onNewShift, onDeleteShift, onUpdateSettings, onExport, welcomeMessage, selectedMonth, onMonthChange }) => {
+        const Dashboard = ({ shifts, settings, onNewShift, onEditShift, onDeleteShift, onUpdateSettings, onExport, welcomeMessage, selectedMonth, onMonthChange }) => {
             const [showSettings, setShowSettings] = useState(false);
 
             // Filter shifts for selected month
@@ -591,12 +594,22 @@
                                                 </div>
                                             </div>
                                         </div>
-                                        <button
-                                            onClick={() => onDeleteShift(shift.id)}
-                                            className="text-gray-300 hover:text-red-500 p-3 rounded-xl hover:bg-red-50 transition-colors"
-                                        >
-                                            <Trash />
-                                        </button>
+                                        <div className="flex items-center gap-1">
+                                            <button
+                                                onClick={() => onEditShift(shift)}
+                                                className="text-gray-300 hover:text-blue-500 p-3 rounded-xl hover:bg-blue-50 transition-colors"
+                                                aria-label="Edit shift"
+                                            >
+                                                <Edit />
+                                            </button>
+                                            <button
+                                                onClick={() => onDeleteShift(shift.id)}
+                                                className="text-gray-300 hover:text-red-500 p-3 rounded-xl hover:bg-red-50 transition-colors"
+                                                aria-label="Delete shift"
+                                            >
+                                                <Trash />
+                                            </button>
+                                        </div>
                                     </div>
                                 );
                             })
@@ -607,19 +620,27 @@
             );
         };
 
-        const ShiftWizard = ({ onSave, onCancel, employeeName, statHolidays }) => {
+        const ShiftWizard = ({ onSave, onCancel, employeeName, statHolidays, editingShift = null }) => {
+            const isEditMode = !!editingShift;
+
+            // Initialize state from editingShift if in edit mode
             const [step, setStep] = useState(1);
-            const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-            const [type, setType] = useState('weekday');
-            const [customStart, setCustomStart] = useState('00:00');
-            const [customEnd, setCustomEnd] = useState('08:00');
-            const [hourlyData, setHourlyData] = useState([]);
-            const [blockOverrides, setBlockOverrides] = useState({});
+            const [date, setDate] = useState(editingShift?.date || new Date().toISOString().split('T')[0]);
+            const [type, setType] = useState(editingShift?.shiftType || editingShift?.type || 'weekday');
+            const [customStart, setCustomStart] = useState(editingShift?.customStartTime || editingShift?.regularShiftStart || '00:00');
+            const [customEnd, setCustomEnd] = useState(editingShift?.customShiftEnd || editingShift?.regularShiftEnd || '08:00');
+            const [hourlyData, setHourlyData] = useState(editingShift?.hourlyData || editingShift?.emailData || []);
+            const [blockOverrides, setBlockOverrides] = useState(editingShift?.blockOverrides || {});
             const [activeHourIndex, setActiveHourIndex] = useState(null);
             const [collapsedBlocks, setCollapsedBlocks] = useState({});
 
-            // Initialize data when type/date changes
+            // Initialize data when type/date changes (but not on initial mount in edit mode)
             useEffect(() => {
+                // Skip initialization if we're in edit mode and already have data
+                if (isEditMode && hourlyData.length > 0) {
+                    return;
+                }
+
                 const slots = generateTimeSlots(type, customStart, customEnd);
                 const initData = slots.map(h => ({
                     hourLabel: h,
@@ -800,8 +821,8 @@
                 const timeSlots = generateTimeSlots(type, customStart, customEnd);
 
                 // Match OTCALC3 data structure
-                const newShift = {
-                    id: Date.now().toString(),
+                const shiftData = {
+                    id: isEditMode ? editingShift.id : Date.now().toString(), // Preserve ID in edit mode
                     employeeName,
                     date,
                     shiftType: type, // OTCALC3 uses "shiftType"
@@ -822,7 +843,7 @@
                     isDraft: false,
                     draftSavedAt: null
                 };
-                onSave(newShift);
+                onSave(shiftData, isEditMode);
             };
 
             // Step 1: Config
@@ -833,7 +854,12 @@
                 return (
                     <div className="max-w-md mx-auto bg-white min-h-screen flex flex-col animate-fade-in sm:border-x sm:border-gray-100">
                         <div className="p-6">
-                            <h2 className="text-2xl font-bold text-gray-900 mb-1">New Shift</h2>
+                            <div className="flex items-center gap-2 mb-1">
+                                <h2 className="text-2xl font-bold text-gray-900">{isEditMode ? 'Edit Shift' : 'New Shift'}</h2>
+                                {isEditMode && (
+                                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-bold">EDITING</span>
+                                )}
+                            </div>
                             <p className="text-gray-500 text-sm mb-8">Select the date and type of shift.</p>
 
                             {/* Cross-month warning */}
@@ -1163,6 +1189,7 @@
                 statHolidays: []
             });
             const [welcomeMessage, setWelcomeMessage] = useState('');
+            const [editingShift, setEditingShift] = useState(null);
 
             // Current month in YYYY-MM format
             const currentMonthKey = () => {
@@ -1228,8 +1255,25 @@
                 setSettings(newSettings);
             };
 
-            const handleSaveShift = (newShift) => {
-                setShifts([...shifts, newShift]);
+            const handleEditShift = (shift) => {
+                setEditingShift(shift);
+                setView('wizard');
+            };
+
+            const handleSaveShift = (shiftData, isEditMode) => {
+                if (isEditMode) {
+                    // Update existing shift
+                    setShifts(shifts.map(s => s.id === shiftData.id ? shiftData : s));
+                } else {
+                    // Add new shift
+                    setShifts([...shifts, shiftData]);
+                }
+                setEditingShift(null);
+                setView('dashboard');
+            };
+
+            const handleCancelWizard = () => {
+                setEditingShift(null);
                 setView('dashboard');
             };
 
@@ -1312,7 +1356,11 @@
                         <Dashboard
                             shifts={shifts}
                             settings={settings}
-                            onNewShift={() => setView('wizard')}
+                            onNewShift={() => {
+                                setEditingShift(null);
+                                setView('wizard');
+                            }}
+                            onEditShift={handleEditShift}
                             onDeleteShift={handleDeleteShift}
                             onUpdateSettings={handleUpdateSettings}
                             onExport={handleExport}
@@ -1325,7 +1373,8 @@
                             employeeName={settings.employeeName}
                             statHolidays={settings.statHolidays}
                             onSave={handleSaveShift}
-                            onCancel={() => setView('dashboard')}
+                            onCancel={handleCancelWizard}
+                            editingShift={editingShift}
                         />
                     )}
                 </div>
