@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>OTCALC Zen Enhanced</title>
+    <meta name="description" content="Advanced mobile-first overtime tracker with custom shifts">
+    <meta name="theme-color" content="#ffffff">
+
+    <!-- External Dependencies -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js"></script>
+
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+    <!-- Babel for JSX transformation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f9fafb;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* Hide scrollbar for clean UI */
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* Animations */
+        .animate-fade-in { animation: fadeIn 0.3s ease-out; }
+        .animate-slide-up { animation: slideUp 0.3s ease-out; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Safe area padding for mobile */
+        .safe-pb { padding-bottom: env(safe-area-inset-bottom); }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        // --- UTILITIES FROM OTCALC3_PWA ---
+
+        const calculateHoursBetween = (startTime, endTime) => {
+            const [startHour, startMin] = startTime.split(':').map(Number);
+            const [endHour, endMin] = endTime.split(':').map(Number);
+            const startMinutes = startHour * 60 + startMin;
+            const endMinutes = endHour * 60 + endMin;
+
+            let diffMinutes = endMinutes - startMinutes;
+            if (diffMinutes <= 0) {
+                diffMinutes += 24 * 60; // Add 24 hours if end is before start (next day)
+            }
+
+            return Math.ceil(diffMinutes / 60); // Round up to nearest hour
+        };
+
+        const generateTimeSlots = (shiftType, customStart = '00:00', customEnd = '08:00') => {
+            // Handle custom shifts
+            if (shiftType === 'custom') {
+                const customHours = calculateHoursBetween(customStart, customEnd);
+                const slots = [];
+                const [startHour, startMin] = customStart.split(':').map(Number);
+
+                for (let i = 0; i < customHours; i++) {
+                    // Calculate current time slot maintaining minutes
+                    const currentTotalMinutes = startHour * 60 + startMin + (i * 60);
+                    const nextTotalMinutes = currentTotalMinutes + 60;
+
+                    const currentHour = Math.floor((currentTotalMinutes / 60)) % 24;
+                    const currentMin = currentTotalMinutes % 60;
+                    const nextHour = Math.floor((nextTotalMinutes / 60)) % 24;
+                    const nextMin = nextTotalMinutes % 60;
+
+                    const start = `${String(currentHour).padStart(2, '0')}:${String(currentMin).padStart(2, '0')}`;
+                    const end = `${String(nextHour).padStart(2, '0')}:${String(nextMin).padStart(2, '0')}`;
+                    slots.push(`${start}-${end}`);
+                }
+                return slots;
+            }
+
+            // Existing logic for other shift types
+            if (shiftType === 'weekday') {
+                return [
+                    '16:00-17:00', '17:00-18:00', '18:00-19:00', '19:00-20:00',
+                    '20:00-21:00', '21:00-22:00', '22:00-23:00', '23:00-00:00',
+                    '00:00-01:00', '01:00-02:00', '02:00-03:00', '03:00-04:00',
+                    '04:00-05:00', '05:00-06:00', '06:00-07:00', '07:00-08:00'
+                ];
+            } else if (shiftType === 'stat_holiday') {
+                const slots = [];
+                for (let i = 0; i < 24; i++) {
+                    const start = `${String(i).padStart(2, '0')}:00`;
+                    const end = i === 23 ? '00:00' : `${String(i + 1).padStart(2, '0')}:00`;
+                    slots.push(`${start}-${end}`);
+                }
+                return slots;
+            } else {
+                // Weekend shift (64 hours)
+                const slots = [];
+                const days = ['Fri', 'Sat', 'Sun', 'Mon'];
+                const dayStarts = [16, 0, 0, 0];
+                const dayEnds = [24, 24, 24, 8];
+
+                days.forEach((day, dayIndex) => {
+                    for (let h = dayStarts[dayIndex]; h < dayEnds[dayIndex]; h++) {
+                        const start = `${String(h).padStart(2, '0')}:00`;
+                        const end = h === 23 ? '00:00' : `${String(h + 1).padStart(2, '0')}:00`;
+                        slots.push(`${start}-${end}`);
+                    }
+                });
+                return slots;
+            }
+        };
+
+        const calculateBlockDate = (shiftDate, daysOffset) => {
+            if (!shiftDate) return '';
+            const date = new Date(shiftDate + 'T12:00:00');
+            date.setDate(date.getDate() + daysOffset);
+            return date.toISOString().split('T')[0];
+        };
+
+        const calculateCustomBlocks = (startTime = '00:00', endTime = '08:00', shiftDate = '') => {
+            const totalHours = calculateHoursBetween(startTime, endTime);
+            const fullBlocks = Math.floor(totalHours / 8);
+            const remainingHours = totalHours % 8;
+            const blocks = [];
+
+            const [startHour, startMin] = startTime.split(':').map(Number);
+
+            // Generate full 8-hour blocks
+            for (let i = 0; i < fullBlocks; i++) {
+                const blockStartMinutes = startHour * 60 + startMin + (i * 8 * 60);
+                const blockEndMinutes = blockStartMinutes + (8 * 60);
+
+                const blockStartH = Math.floor(blockStartMinutes / 60);
+                const blockStartM = blockStartMinutes % 60;
+                const blockEndH = Math.floor(blockEndMinutes / 60);
+                const blockEndM = blockEndMinutes % 60;
+
+                const daysOffset = Math.floor(blockStartH / 24);
+                const blockStartHourMod = blockStartH % 24;
+                const blockEndHourMod = blockEndH % 24;
+
+                blocks.push({
+                    name: `Block ${i + 1}`,
+                    timeRange: `${String(blockStartHourMod).padStart(2, '0')}:${String(blockStartM).padStart(2, '0')}-${String(blockEndHourMod).padStart(2, '0')}:${String(blockEndM).padStart(2, '0')}`,
+                    hours: 8,
+                    startSlotIndex: i * 8,
+                    endSlotIndex: (i + 1) * 8,
+                    isPartial: false,
+                    daysOffset: daysOffset,
+                    blockDate: calculateBlockDate(shiftDate, daysOffset)
+                });
+            }
+
+            // Add partial final block if needed
+            if (remainingHours > 0) {
+                const blockStartMinutes = startHour * 60 + startMin + (fullBlocks * 8 * 60);
+                const blockEndMinutes = blockStartMinutes + (remainingHours * 60);
+
+                const blockStartH = Math.floor(blockStartMinutes / 60);
+                const blockStartM = blockStartMinutes % 60;
+                const blockEndH = Math.floor(blockEndMinutes / 60);
+                const blockEndM = blockEndMinutes % 60;
+
+                const daysOffset = Math.floor(blockStartH / 24);
+                const blockStartHourMod = blockStartH % 24;
+                const blockEndHourMod = blockEndH % 24;
+
+                blocks.push({
+                    name: `Block ${fullBlocks + 1}`,
+                    timeRange: `${String(blockStartHourMod).padStart(2, '0')}:${String(blockStartM).padStart(2, '0')}-${String(blockEndHourMod).padStart(2, '0')}:${String(blockEndM).padStart(2, '0')}`,
+                    hours: remainingHours,
+                    startSlotIndex: fullBlocks * 8,
+                    endSlotIndex: fullBlocks * 8 + remainingHours,
+                    isPartial: true,
+                    daysOffset: daysOffset,
+                    blockDate: calculateBlockDate(shiftDate, daysOffset)
+                });
+            }
+
+            return blocks;
+        };
+
+        const getOvertimeCode = (dateStr, statHolidays = []) => {
+            const date = new Date(dateStr + 'T12:00:00');
+            const dayOfWeek = date.getDay();
+
+            if (statHolidays.some(h => h.date === dateStr)) return '263';
+            if (dayOfWeek === 0 || dayOfWeek === 6) return '262';
+            if (dayOfWeek === 5) return '261';
+            return '260';
+        };
+
+        // --- ICONS ---
+
+        const CalendarIcon = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+        );
+        const Clock = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+        );
+        const ChevronRight = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        );
+        const ChevronLeft = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        );
+        const ChevronDown = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        );
+        const Plus = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        );
+        const Trash = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+        );
+        const Briefcase = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>
+        );
+        const Sun = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+        );
+        const Moon = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+        );
+        const Check = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        );
+        const Download = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        );
+        const Settings = () => (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 1v6m0 6v6m6-12h6m-6 6h6M1 12h6m0 0h6"></path></svg>
+        );
+
+        // --- COMPONENTS ---
+
+        const Dashboard = ({ shifts, settings, onNewShift, onDeleteShift, onUpdateSettings, onExport }) => {
+            const currentMonth = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
+
+            const totalOT = shifts.reduce((sum, s) => sum + s.totalOT, 0);
+            const totalShifts = shifts.length;
+
+            return (
+                <div className="max-w-2xl mx-auto space-y-6 pb-20 animate-fade-in px-4 pt-6">
+                    {/* Header */}
+                    <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                        <div>
+                            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">OTCALC Zen</h1>
+                            <p className="text-gray-500 text-sm font-medium">{currentMonth}</p>
+                        </div>
+                        <div className="bg-blue-50 text-blue-700 px-4 py-1.5 rounded-full text-xs font-bold tracking-wide uppercase">
+                            {settings.employeeName || 'Guest'}
+                        </div>
+                    </div>
+
+                    {/* Name Input if missing */}
+                    {!settings.employeeName && (
+                        <div className="bg-gradient-to-r from-orange-50 to-orange-100 p-5 rounded-2xl border border-orange-200 animate-slide-up">
+                            <label className="block text-sm font-bold text-orange-900 mb-2">👋 Welcome! What's your name?</label>
+                            <input
+                                type="text"
+                                className="w-full px-4 py-3 rounded-xl border-orange-200 focus:ring-2 focus:ring-orange-500 outline-none bg-white shadow-sm"
+                                placeholder="e.g. Jane Doe"
+                                onBlur={(e) => onUpdateSettings({...settings, employeeName: e.target.value})}
+                            />
+                        </div>
+                    )}
+
+                    {/* Stats Cards */}
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center justify-center">
+                            <span className="text-blue-200 mb-2"><Clock /></span>
+                            <span className="text-3xl font-extrabold text-gray-900 tracking-tight">{totalOT.toFixed(2)}h</span>
+                            <span className="text-xs text-gray-400 font-bold uppercase tracking-wider">Total OT</span>
+                        </div>
+                        <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center justify-center">
+                            <span className="text-purple-200 mb-2"><Briefcase /></span>
+                            <span className="text-3xl font-extrabold text-gray-900 tracking-tight">{totalShifts}</span>
+                            <span className="text-xs text-gray-400 font-bold uppercase tracking-wider">Shifts</span>
+                        </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="grid grid-cols-2 gap-4">
+                        <button
+                            onClick={onNewShift}
+                            className="bg-blue-600 hover:bg-blue-700 active:scale-95 transition-all text-white p-4 rounded-2xl font-bold shadow-lg shadow-blue-200 flex items-center justify-center gap-2"
+                        >
+                            <Plus /> New Shift
+                        </button>
+                        <button
+                            onClick={onExport}
+                            disabled={shifts.length === 0}
+                            className="bg-white hover:bg-gray-50 active:scale-95 transition-all text-gray-700 border border-gray-200 p-4 rounded-2xl font-bold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <Download /> Export
+                        </button>
+                    </div>
+
+                    {/* Recent Shifts List */}
+                    <div className="space-y-3">
+                        <h3 className="text-lg font-bold text-gray-800 px-1">Recent History</h3>
+                        {shifts.length === 0 ? (
+                            <div className="text-center py-12 text-gray-400 bg-white rounded-2xl border-2 border-dashed border-gray-200">
+                                <p>No shifts logged this month.</p>
+                                <p className="text-sm mt-1 opacity-70">Tap "New Shift" to start tracking.</p>
+                            </div>
+                        ) : (
+                            shifts.slice().reverse().map(shift => (
+                                <div key={shift.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center group active:bg-gray-50 transition-colors">
+                                    <div className="flex items-center gap-4">
+                                        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-lg font-bold shadow-sm
+                                            ${shift.type === 'weekend' ? 'bg-purple-100 text-purple-600' :
+                                            shift.type === 'stat_holiday' ? 'bg-red-100 text-red-600' :
+                                            shift.type === 'custom' ? 'bg-indigo-100 text-indigo-600' : 'bg-blue-100 text-blue-600'}`}>
+                                            {shift.date.split('-')[2]}
+                                        </div>
+                                        <div>
+                                            <div className="font-bold text-gray-900 capitalize text-sm sm:text-base">{shift.type.replace('_', ' ')}</div>
+                                            <div className="text-xs text-gray-500 flex gap-2 font-medium mt-0.5">
+                                                <span className="bg-gray-100 px-1.5 py-0.5 rounded">OT: {shift.totalOT.toFixed(2)}h</span>
+                                                <span className="bg-gray-100 px-1.5 py-0.5 rounded">SB: {shift.totalSB.toFixed(2)}h</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => onDeleteShift(shift.id)}
+                                        className="text-gray-300 hover:text-red-500 p-3 rounded-xl hover:bg-red-50 transition-colors"
+                                    >
+                                        <Trash />
+                                    </button>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const ShiftWizard = ({ onSave, onCancel, employeeName, statHolidays }) => {
+            const [step, setStep] = useState(1);
+            const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+            const [type, setType] = useState('weekday');
+            const [customStart, setCustomStart] = useState('00:00');
+            const [customEnd, setCustomEnd] = useState('08:00');
+            const [hourlyData, setHourlyData] = useState([]);
+            const [blockOverrides, setBlockOverrides] = useState({});
+            const [activeHourIndex, setActiveHourIndex] = useState(null);
+            const [collapsedBlocks, setCollapsedBlocks] = useState({});
+
+            // Initialize data when type/date changes
+            useEffect(() => {
+                const slots = generateTimeSlots(type, customStart, customEnd);
+                const initData = slots.map(h => ({
+                    hourLabel: h,
+                    totalEmails: 0,
+                    actionableEmails: 0,
+                    calls: 0,
+                    comments: ''
+                }));
+                setHourlyData(initData);
+
+                // Initialize block overrides based on shift type
+                const numBlocks = type === 'custom'
+                    ? Math.ceil(calculateHoursBetween(customStart, customEnd) / 8)
+                    : type === 'weekday' ? 2
+                    : type === 'stat_holiday' ? 3
+                    : 8;
+
+                const newOverrides = {};
+                for (let i = 0; i < numBlocks; i++) {
+                    newOverrides[i] = { manualOT: 0, reason: '' };
+                }
+                setBlockOverrides(newOverrides);
+            }, [type, date, customStart, customEnd]);
+
+            const updateHour = (index, field, value) => {
+                const newData = [...hourlyData];
+                newData[index] = { ...newData[index], [field]: value };
+                if (field === 'actionableEmails' && value > newData[index].totalEmails) {
+                    newData[index].totalEmails = value;
+                }
+                setHourlyData(newData);
+            };
+
+            const calculateBlockTotals = (startIdx, endIdx, blockHours = 8) => {
+                let totalActionable = 0;
+                let totalEmails = 0;
+                let totalCalls = 0;
+
+                for (let i = startIdx; i < endIdx && i < hourlyData.length; i++) {
+                    totalActionable += hourlyData[i]?.actionableEmails || 0;
+                    totalEmails += hourlyData[i]?.totalEmails || 0;
+                    totalCalls += hourlyData[i]?.calls || 0;
+                }
+
+                const emailBasedOT = totalActionable * 0.25;
+                const callBasedOT = totalCalls * 0.25;
+                const workloadOT = Math.min(emailBasedOT + callBasedOT, blockHours);
+
+                const blockIdx = Math.floor(startIdx / 8);
+                const manualOverrideOT = blockOverrides[blockIdx]?.manualOT || 0;
+                const totalBlockOT = Math.min(workloadOT + manualOverrideOT, blockHours);
+                const blockSB = blockHours - totalBlockOT;
+
+                return {
+                    totalActionable,
+                    totalEmails,
+                    totalCalls,
+                    emailBasedOT,
+                    callBasedOT,
+                    workloadOT,
+                    manualOverrideOT,
+                    totalBlockOT,
+                    blockSB,
+                    blockHours,
+                    hasOverride: manualOverrideOT > 0
+                };
+            };
+
+            const calculateBlocks = () => {
+                const blocks = [];
+
+                if (type === 'custom') {
+                    const customBlocks = calculateCustomBlocks(customStart, customEnd, date);
+                    customBlocks.forEach((blockMeta, idx) => {
+                        blocks.push({
+                            name: blockMeta.name,
+                            timeRange: blockMeta.timeRange,
+                            ...calculateBlockTotals(
+                                blockMeta.startSlotIndex,
+                                blockMeta.endSlotIndex,
+                                blockMeta.hours
+                            ),
+                            code: getOvertimeCode(blockMeta.blockDate, statHolidays),
+                            isPartial: blockMeta.isPartial,
+                            blockDate: blockMeta.blockDate
+                        });
+                    });
+                } else if (type === 'weekday') {
+                    blocks.push({
+                        name: 'Evening Block',
+                        timeRange: '16:00-00:00',
+                        ...calculateBlockTotals(0, 8, 8),
+                        code: getOvertimeCode(date, statHolidays)
+                    });
+                    blocks.push({
+                        name: 'Morning Block',
+                        timeRange: '00:00-08:00',
+                        ...calculateBlockTotals(8, 16, 8),
+                        code: getOvertimeCode(date, statHolidays)
+                    });
+                } else if (type === 'stat_holiday') {
+                    for (let i = 0; i < 3; i++) {
+                        blocks.push({
+                            name: `Block ${i + 1}`,
+                            timeRange: `${String(i * 8).padStart(2, '0')}:00-${String((i + 1) * 8).padStart(2, '0')}:00`,
+                            ...calculateBlockTotals(i * 8, (i + 1) * 8, 8),
+                            code: '263'
+                        });
+                    }
+                } else {
+                    // Weekend
+                    const blockNames = ['Friday Evening', 'Saturday Morning', 'Saturday Afternoon', 'Saturday Evening',
+                                      'Sunday Morning', 'Sunday Afternoon', 'Sunday Evening', 'Monday Morning'];
+                    blockNames.forEach((name, i) => {
+                        const otCode = i === 0 ? '261' : i === 7 ? '260' : '262';
+                        blocks.push({
+                            name,
+                            timeRange: '',
+                            ...calculateBlockTotals(i * 8, (i + 1) * 8, 8),
+                            code: otCode
+                        });
+                    });
+                }
+
+                return blocks;
+            };
+
+            const calculateTotalPreview = () => {
+                const blocks = calculateBlocks();
+                const totalOT = blocks.reduce((sum, b) => sum + b.totalBlockOT, 0);
+                const totalSB = blocks.reduce((sum, b) => sum + b.blockSB, 0);
+                return { totalOT, totalSB };
+            };
+
+            const handleSave = () => {
+                const blocks = calculateBlocks();
+                const { totalOT, totalSB } = calculateTotalPreview();
+
+                const newShift = {
+                    id: Date.now().toString(),
+                    employeeName,
+                    date,
+                    type,
+                    customStart,
+                    customEnd,
+                    hourlyData,
+                    blocks,
+                    blockOverrides,
+                    notes: '',
+                    totalOT: parseFloat(totalOT.toFixed(2)),
+                    totalSB: parseFloat(totalSB.toFixed(2))
+                };
+                onSave(newShift);
+            };
+
+            // Step 1: Config
+            if (step === 1) {
+                return (
+                    <div className="max-w-md mx-auto bg-white min-h-screen flex flex-col animate-fade-in sm:border-x sm:border-gray-100">
+                        <div className="p-6">
+                            <h2 className="text-2xl font-bold text-gray-900 mb-1">New Shift</h2>
+                            <p className="text-gray-500 text-sm mb-8">Select the date and type of shift.</p>
+
+                            <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Date</label>
+                            <div className="relative mb-8 group">
+                                <input
+                                    type="date"
+                                    value={date}
+                                    onChange={(e) => setDate(e.target.value)}
+                                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-4 text-lg font-medium outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                                />
+                                <span className="absolute right-4 top-4.5 text-gray-400 pointer-events-none group-hover:text-blue-500 transition-colors"><CalendarIcon /></span>
+                            </div>
+
+                            <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Shift Type</label>
+                            <div className="grid grid-cols-1 gap-3 mb-8">
+                                <button
+                                    onClick={() => setType('weekday')}
+                                    className={`p-4 rounded-xl border-2 flex items-center gap-4 transition-all ${type === 'weekday' ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-sm' : 'border-gray-100 hover:border-blue-200'}`}
+                                >
+                                    <div className={`p-3 rounded-lg ${type === 'weekday' ? 'bg-blue-200 text-blue-700' : 'bg-gray-100 text-gray-500'}`}><Moon /></div>
+                                    <div className="text-left">
+                                        <div className="font-bold">Weekday</div>
+                                        <div className="text-xs opacity-75">16:00 - 08:00 (Next Day)</div>
+                                    </div>
+                                    {type === 'weekday' && <div className="ml-auto"><Check /></div>}
+                                </button>
+
+                                <button
+                                    onClick={() => setType('weekend')}
+                                    className={`p-4 rounded-xl border-2 flex items-center gap-4 transition-all ${type === 'weekend' ? 'border-purple-500 bg-purple-50 text-purple-700 shadow-sm' : 'border-gray-100 hover:border-purple-200'}`}
+                                >
+                                    <div className={`p-3 rounded-lg ${type === 'weekend' ? 'bg-purple-200 text-purple-700' : 'bg-gray-100 text-gray-500'}`}><Sun /></div>
+                                    <div className="text-left">
+                                        <div className="font-bold">Weekend</div>
+                                        <div className="text-xs opacity-75">Fri 16:00 - Mon 08:00</div>
+                                    </div>
+                                    {type === 'weekend' && <div className="ml-auto"><Check /></div>}
+                                </button>
+
+                                <button
+                                    onClick={() => setType('stat_holiday')}
+                                    className={`p-4 rounded-xl border-2 flex items-center gap-4 transition-all ${type === 'stat_holiday' ? 'border-red-500 bg-red-50 text-red-700 shadow-sm' : 'border-gray-100 hover:border-red-200'}`}
+                                >
+                                    <div className={`p-3 rounded-lg ${type === 'stat_holiday' ? 'bg-red-200 text-red-700' : 'bg-gray-100 text-gray-500'}`}><CalendarIcon /></div>
+                                    <div className="text-left">
+                                        <div className="font-bold">Stat Holiday</div>
+                                        <div className="text-xs opacity-75">24 Hours (00:00 - 00:00)</div>
+                                    </div>
+                                    {type === 'stat_holiday' && <div className="ml-auto"><Check /></div>}
+                                </button>
+
+                                <button
+                                    onClick={() => setType('custom')}
+                                    className={`p-4 rounded-xl border-2 flex items-center gap-4 transition-all ${type === 'custom' ? 'border-indigo-500 bg-indigo-50 text-indigo-700 shadow-sm' : 'border-gray-100 hover:border-indigo-200'}`}
+                                >
+                                    <div className={`p-3 rounded-lg ${type === 'custom' ? 'bg-indigo-200 text-indigo-700' : 'bg-gray-100 text-gray-500'}`}><Clock /></div>
+                                    <div className="text-left">
+                                        <div className="font-bold">Custom/Flexible</div>
+                                        <div className="text-xs opacity-75">Set your own times</div>
+                                    </div>
+                                    {type === 'custom' && <div className="ml-auto"><Check /></div>}
+                                </button>
+                            </div>
+
+                            {/* Custom Time Inputs */}
+                            {type === 'custom' && (
+                                <div className="bg-indigo-50 p-4 rounded-xl mb-6 animate-slide-up">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-xs font-bold text-indigo-900 mb-2">Start Time</label>
+                                            <input
+                                                type="time"
+                                                value={customStart}
+                                                onChange={(e) => setCustomStart(e.target.value)}
+                                                className="w-full px-3 py-2 rounded-lg border border-indigo-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-indigo-900 mb-2">End Time</label>
+                                            <input
+                                                type="time"
+                                                value={customEnd}
+                                                onChange={(e) => setCustomEnd(e.target.value)}
+                                                className="w-full px-3 py-2 rounded-lg border border-indigo-200 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="mt-2 text-xs text-indigo-700 text-center">
+                                        {calculateHoursBetween(customStart, customEnd)} hours total ({Math.ceil(calculateHoursBetween(customStart, customEnd) / 8)} blocks)
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="mt-auto p-6 bg-white border-t border-gray-50 flex gap-3 safe-pb">
+                            <button onClick={onCancel} className="flex-1 py-4 font-bold text-gray-500 hover:bg-gray-50 rounded-xl transition-colors">Cancel</button>
+                            <button onClick={() => setStep(2)} className="flex-1 bg-blue-600 text-white py-4 rounded-xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 active:scale-95 transition-all flex justify-center items-center gap-2">
+                                Next <ChevronRight />
+                            </button>
+                        </div>
+                    </div>
+                );
+            }
+
+            // Step 2: Activity Log
+            const blocks = calculateBlocks();
+            const { totalOT, totalSB } = calculateTotalPreview();
+
+            return (
+                <div className="max-w-md mx-auto bg-white min-h-screen flex flex-col h-[100dvh] overflow-hidden animate-slide-up sm:border-x sm:border-gray-100">
+                    {/* Header */}
+                    <div className="p-4 border-b flex items-center justify-between bg-white z-10 shadow-sm">
+                        <button onClick={() => setStep(1)} className="p-2 text-gray-400 hover:text-gray-700"><ChevronLeft /></button>
+                        <div className="text-center">
+                            <div className="font-bold text-gray-800">Log Activity</div>
+                            <div className="text-xs text-gray-400">{date}</div>
+                        </div>
+                        <div className="w-8"></div>
+                    </div>
+
+                    {/* Scrollable Content */}
+                    <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50 hide-scrollbar">
+                        {/* Block Summary Cards */}
+                        <div className="space-y-3">
+                            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Blocks Summary</h3>
+                            {blocks.map((block, idx) => {
+                                const isCollapsed = collapsedBlocks[idx];
+                                return (
+                                    <div key={idx} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                                        <button
+                                            onClick={() => setCollapsedBlocks(prev => ({...prev, [idx]: !prev[idx]}))}
+                                            className="w-full p-4 flex items-center justify-between active:bg-gray-50"
+                                        >
+                                            <div className="text-left">
+                                                <div className="font-bold text-gray-800 text-sm">{block.name}</div>
+                                                <div className="text-xs text-gray-500">{block.timeRange}</div>
+                                                {block.isPartial && (
+                                                    <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full mt-1 inline-block">
+                                                        {block.blockHours}hr partial
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <div className="text-right">
+                                                    <div className="text-sm font-bold text-blue-600">{block.totalBlockOT.toFixed(2)}h OT</div>
+                                                    <div className="text-xs text-gray-400">{block.blockSB.toFixed(2)}h SB</div>
+                                                </div>
+                                                <div className={`transition-transform ${isCollapsed ? '' : 'rotate-180'}`}>
+                                                    <ChevronDown />
+                                                </div>
+                                            </div>
+                                        </button>
+
+                                        {!isCollapsed && (
+                                            <div className="px-4 pb-4 border-t border-gray-100 pt-3 bg-gray-50">
+                                                <div className="grid grid-cols-2 gap-3 text-xs mb-3">
+                                                    <div>
+                                                        <div className="text-gray-500">Actionable</div>
+                                                        <div className="font-bold">{block.totalActionable}</div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-gray-500">Calls</div>
+                                                        <div className="font-bold">{block.totalCalls}</div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-gray-500">Email OT</div>
+                                                        <div className="font-bold">{block.emailBasedOT.toFixed(2)}h</div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-gray-500">Code</div>
+                                                        <div className="font-bold">{block.code}</div>
+                                                    </div>
+                                                </div>
+                                                {/* Manual Override */}
+                                                <div className="bg-white p-3 rounded-lg">
+                                                    <label className="block text-xs font-bold text-gray-700 mb-2">Manual Override (Optional)</label>
+                                                    <div className="flex gap-2 items-center mb-2">
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            max={block.blockHours}
+                                                            step="0.25"
+                                                            value={blockOverrides[idx]?.manualOT || 0}
+                                                            onChange={(e) => {
+                                                                const val = parseFloat(e.target.value) || 0;
+                                                                setBlockOverrides(prev => ({
+                                                                    ...prev,
+                                                                    [idx]: {...prev[idx], manualOT: Math.min(val, block.blockHours)}
+                                                                }));
+                                                            }}
+                                                            className="flex-1 px-3 py-2 border rounded-lg text-sm"
+                                                            placeholder="0.00"
+                                                        />
+                                                        <span className="text-xs text-gray-500">hours</span>
+                                                    </div>
+                                                    <input
+                                                        type="text"
+                                                        value={blockOverrides[idx]?.reason || ''}
+                                                        onChange={(e) => {
+                                                            setBlockOverrides(prev => ({
+                                                                ...prev,
+                                                                [idx]: {...prev[idx], reason: e.target.value}
+                                                            }));
+                                                        }}
+                                                        placeholder="Reason (required if override > 0)"
+                                                        className="w-full px-3 py-2 border rounded-lg text-xs"
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* Hourly Activity Timeline */}
+                        <div className="space-y-3">
+                            <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider">Hourly Activity</h3>
+                            <div className="bg-blue-50 p-3 rounded-lg text-xs text-blue-700 text-center">
+                                Tap any hour to log emails or calls.
+                            </div>
+
+                            {hourlyData.map((slot, idx) => {
+                                const isActive = activeHourIndex === idx;
+                                const hasData = slot.actionableEmails > 0 || slot.calls > 0;
+                                const currentOT = Math.min((slot.actionableEmails * 0.25) + (slot.calls * 0.25), 1.0);
+
+                                return (
+                                    <div key={idx} className={`bg-white rounded-xl transition-all duration-300 border ${isActive ? 'ring-2 ring-blue-500 border-transparent shadow-lg scale-[1.02]' : hasData ? 'border-blue-200 shadow-sm' : 'border-gray-100'}`}>
+                                        <div
+                                            onClick={() => setActiveHourIndex(isActive ? null : idx)}
+                                            className="p-4 flex items-center justify-between cursor-pointer active:bg-gray-50 rounded-xl"
+                                        >
+                                            <div className="flex items-center gap-3">
+                                                <span className={`text-sm font-mono font-bold ${hasData ? 'text-blue-600' : 'text-gray-400'}`}>{slot.hourLabel}</span>
+                                                {hasData && (
+                                                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold">
+                                                        {currentOT.toFixed(2)}h OT
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className={`transition-transform duration-300 ${isActive ? 'rotate-90 text-blue-500' : 'text-gray-300'}`}>
+                                                <ChevronRight />
+                                            </div>
+                                        </div>
+
+                                        {isActive && (
+                                            <div className="px-4 pb-4 animate-fade-in border-t border-gray-50 pt-4">
+                                                <div className="grid grid-cols-2 gap-4 mb-4">
+                                                    <div className="bg-gray-50 p-3 rounded-xl">
+                                                        <label className="text-xs font-bold text-gray-400 uppercase block mb-2 text-center">Actionable Emails</label>
+                                                        <div className="flex items-center justify-center gap-3">
+                                                            <button onClick={() => updateHour(idx, 'actionableEmails', Math.max(0, slot.actionableEmails - 1))} className="w-10 h-10 rounded-full bg-white text-gray-600 shadow-sm border border-gray-200 flex items-center justify-center text-xl font-bold active:scale-90 transition-transform">-</button>
+                                                            <span className="text-xl font-bold text-gray-800 w-8 text-center">{slot.actionableEmails}</span>
+                                                            <button onClick={() => updateHour(idx, 'actionableEmails', slot.actionableEmails + 1)} className="w-10 h-10 rounded-full bg-blue-600 text-white shadow-md shadow-blue-200 flex items-center justify-center text-xl font-bold active:scale-90 transition-transform">+</button>
+                                                        </div>
+                                                    </div>
+                                                    <div className="bg-gray-50 p-3 rounded-xl">
+                                                        <label className="text-xs font-bold text-gray-400 uppercase block mb-2 text-center">Calls</label>
+                                                        <div className="flex items-center justify-center gap-3">
+                                                            <button onClick={() => updateHour(idx, 'calls', Math.max(0, slot.calls - 1))} className="w-10 h-10 rounded-full bg-white text-gray-600 shadow-sm border border-gray-200 flex items-center justify-center text-xl font-bold active:scale-90 transition-transform">-</button>
+                                                            <span className="text-xl font-bold text-gray-800 w-8 text-center">{slot.calls}</span>
+                                                            <button onClick={() => updateHour(idx, 'calls', slot.calls + 1)} className="w-10 h-10 rounded-full bg-blue-600 text-white shadow-md shadow-blue-200 flex items-center justify-center text-xl font-bold active:scale-90 transition-transform">+</button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <input
+                                                    type="text"
+                                                    placeholder="Add comment (optional)..."
+                                                    value={slot.comments}
+                                                    onChange={(e) => updateHour(idx, 'comments', e.target.value)}
+                                                    className="w-full bg-gray-50 rounded-xl px-4 py-3 text-sm border-none focus:ring-2 focus:ring-blue-500 transition-all"
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        <div className="h-20"></div>
+                    </div>
+
+                    {/* Footer Summary */}
+                    <div className="p-4 border-t bg-white shadow-[0_-10px_40px_rgba(0,0,0,0.1)] z-20 safe-pb">
+                        <div className="grid grid-cols-2 gap-3 mb-3">
+                            <div className="bg-blue-50 p-3 rounded-xl text-center">
+                                <div className="text-xs text-blue-600 font-medium">Total OT</div>
+                                <div className="text-xl font-extrabold text-blue-700">{totalOT.toFixed(2)}h</div>
+                            </div>
+                            <div className="bg-purple-50 p-3 rounded-xl text-center">
+                                <div className="text-xs text-purple-600 font-medium">Total SB</div>
+                                <div className="text-xl font-extrabold text-purple-700">{totalSB.toFixed(2)}h</div>
+                            </div>
+                        </div>
+                        <button
+                            onClick={handleSave}
+                            className="w-full bg-green-600 hover:bg-green-700 active:scale-95 transition-all text-white py-4 rounded-xl font-bold shadow-lg shadow-green-200 flex items-center justify-center gap-2 text-lg"
+                        >
+                            <Check /> Finish & Save
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [view, setView] = useState('dashboard');
+            const [shifts, setShifts] = useState([]);
+            const [settings, setSettings] = useState({
+                employeeName: '',
+                statHolidays: []
+            });
+
+            // Load data
+            useEffect(() => {
+                const savedShifts = localStorage.getItem('otcalc_zen_shifts');
+                const savedSettings = localStorage.getItem('otcalc_zen_settings');
+                if (savedShifts) setShifts(JSON.parse(savedShifts));
+                if (savedSettings) setSettings(JSON.parse(savedSettings));
+            }, []);
+
+            // Save data
+            useEffect(() => {
+                localStorage.setItem('otcalc_zen_shifts', JSON.stringify(shifts));
+                localStorage.setItem('otcalc_zen_settings', JSON.stringify(settings));
+            }, [shifts, settings]);
+
+            const handleSaveShift = (newShift) => {
+                setShifts([...shifts, newShift]);
+                setView('dashboard');
+            };
+
+            const handleDeleteShift = (id) => {
+                if(confirm('Delete this shift?')) {
+                    setShifts(shifts.filter(s => s.id !== id));
+                }
+            };
+
+            const handleExport = async () => {
+                if (!shifts.length) return;
+
+                const workbook = new ExcelJS.Workbook();
+                workbook.creator = 'OTCALC Zen Enhanced';
+                workbook.created = new Date();
+
+                // Summary Sheet
+                const summarySheet = workbook.addWorksheet('Monthly Summary');
+                summarySheet.mergeCells('A1:F1');
+                const titleCell = summarySheet.getCell('A1');
+                titleCell.value = '🕐 MONTHLY OVERTIME TRACKER';
+                titleCell.font = { size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
+                titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+                titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+                summarySheet.getCell('A2').value = `Employee: ${settings.employeeName}`;
+                summarySheet.getCell('A2').font = { bold: true };
+
+                const totalOT = shifts.reduce((sum, s) => sum + s.totalOT, 0);
+                const totalSB = shifts.reduce((sum, s) => sum + s.totalSB, 0);
+
+                summarySheet.getCell('A4').value = 'Total Shifts:';
+                summarySheet.getCell('B4').value = shifts.length;
+                summarySheet.getCell('A5').value = 'Total OT Hours:';
+                summarySheet.getCell('B5').value = totalOT.toFixed(2);
+                summarySheet.getCell('A6').value = 'Total SB Hours:';
+                summarySheet.getCell('B6').value = totalSB.toFixed(2);
+
+                // Individual Shift Sheets
+                shifts.forEach((shift, idx) => {
+                    const sheetName = `Shift ${idx + 1} - ${shift.date}`;
+                    const ws = workbook.addWorksheet(sheetName);
+
+                    ws.getCell('A1').value = `Shift Date: ${shift.date}`;
+                    ws.getCell('A2').value = `Type: ${shift.type}`;
+                    ws.getCell('A3').value = `Total OT: ${shift.totalOT.toFixed(2)}h`;
+                    ws.getCell('A4').value = `Total SB: ${shift.totalSB.toFixed(2)}h`;
+
+                    ws.addRow([]);
+                    ws.addRow(['Block', 'Time Range', 'Actionable', 'Calls', 'Email OT', 'Manual OT', 'Total OT', 'SB', 'Code']);
+
+                    shift.blocks.forEach(block => {
+                        ws.addRow([
+                            block.name,
+                            block.timeRange,
+                            block.totalActionable,
+                            block.totalCalls,
+                            block.emailBasedOT.toFixed(2),
+                            block.manualOverrideOT.toFixed(2),
+                            block.totalBlockOT.toFixed(2),
+                            block.blockSB.toFixed(2),
+                            block.code
+                        ]);
+                    });
+                });
+
+                const buffer = await workbook.xlsx.writeBuffer();
+                const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `OT_Report_${settings.employeeName || 'Export'}_${new Date().toISOString().split('T')[0]}.xlsx`;
+                a.click();
+            };
+
+            return (
+                <div className="min-h-screen bg-gray-50">
+                    {view === 'dashboard' ? (
+                        <Dashboard
+                            shifts={shifts}
+                            settings={settings}
+                            onNewShift={() => setView('wizard')}
+                            onDeleteShift={handleDeleteShift}
+                            onUpdateSettings={setSettings}
+                            onExport={handleExport}
+                        />
+                    ) : (
+                        <ShiftWizard
+                            employeeName={settings.employeeName}
+                            statHolidays={settings.statHolidays}
+                            onSave={handleSaveShift}
+                            onCancel={() => setView('dashboard')}
+                        />
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
