@@ -2426,8 +2426,14 @@
                                         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                                             <Mail />
                                             Hourly Email Tracking ({
-                                                shiftType === 'weekday' ? '16:00 - 08:00' : 
+                                                shiftType === 'weekday' ? '16:00 - 08:00' :
                                                 shiftType === 'stat_holiday' ? '00:00 - 00:00 (24 hours)' :
+                                                shiftType === 'custom' ? (() => {
+                                                    const [startHour, startMin] = customShiftStart.split(':').map(Number);
+                                                    const endHour = (startHour + customShiftHours) % 24;
+                                                    const endTime = `${String(endHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}`;
+                                                    return `${customShiftStart} - ${endTime} (${customShiftHours} hours)`;
+                                                })() :
                                                 'Fri 16:00 - Mon 08:00'
                                             })
                                         </h3>
@@ -2584,9 +2590,63 @@
                                                     )}
                                                 </div>
                                             </>
+                                        ) : shiftType === 'custom' ? (
+                                            <>
+                                                {(() => {
+                                                    const customBlocks = calculateCustomBlocks(customShiftHours, customShiftStart, shiftDate);
+
+                                                    return customBlocks.map((blockMeta, blockIdx) => {
+                                                        const blockKey = `custom-block-${blockIdx}`;
+                                                        const colorClass = BLOCK_COLOR_CLASSES[blockIdx % BLOCK_COLOR_CLASSES.length];
+                                                        const blockData = calculateShiftBlocks()[blockIdx] || {};
+                                                        const otCode = getOvertimeCode(blockMeta.blockDate, userSettings.statHolidays);
+
+                                                        return (
+                                                            <div key={blockIdx} className="mb-4">
+                                                                <button
+                                                                    onClick={() => toggleBlockCollapse(blockKey)}
+                                                                    className={`w-full ${colorClass} px-4 py-2 rounded flex items-center justify-between mb-3`}
+                                                                >
+                                                                    <span className="font-semibold flex items-center gap-2">
+                                                                        {blockMeta.name}: {blockMeta.timeRange}
+                                                                        {blockMeta.isPartial && (
+                                                                            <span className="text-xs bg-yellow-200 text-yellow-800 px-2 py-1 rounded">
+                                                                                ⚠️ {blockMeta.hours}hr
+                                                                            </span>
+                                                                        )}
+                                                                        <span className="text-xs opacity-75">[OT Code: {otCode}]</span>
+                                                                    </span>
+                                                                    {collapsedBlocks[blockKey] ? <ChevronDown /> : <ChevronUp />}
+                                                                </button>
+                                                                {!collapsedBlocks[blockKey] && (
+                                                                    <>
+                                                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                                                                            {currentTimeSlots.slice(blockMeta.startSlotIndex, blockMeta.endSlotIndex).map((slot, idx) =>
+                                                                                renderHourlyBlock(slot, blockMeta.startSlotIndex + idx)
+                                                                            )}
+                                                                        </div>
+
+                                                                        <ExceptionOverrideCard
+                                                                            blockIndex={blockIdx}
+                                                                            blockName={blockMeta.name}
+                                                                            emailBasedOT={blockData.emailBasedOT || 0}
+                                                                            overrideHours={blockOverrides[blockIdx]?.manualOT || 0}
+                                                                            overrideReason={blockOverrides[blockIdx]?.reason || ''}
+                                                                            isOpen={openOverrideCards[blockIdx]}
+                                                                            onToggle={toggleOverrideCard}
+                                                                            onUpdateHours={(idx, val) => updateBlockOverride(idx, 'manualOT', val)}
+                                                                            onUpdateReason={(idx, val) => updateBlockOverride(idx, 'reason', val)}
+                                                                        />
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    });
+                                                })()}
+                                            </>
                                         ) : (
                                             <>
-                                                {['Friday Evening', 'Saturday Morning', 'Saturday Afternoon', 'Saturday Evening', 
+                                                {['Friday Evening', 'Saturday Morning', 'Saturday Afternoon', 'Saturday Evening',
                                                   'Sunday Morning', 'Sunday Afternoon', 'Sunday Evening', 'Monday Morning'].map((blockName, blockIdx) => {
                                                     const startIdx = blockIdx * 8;
                                                     const blockKey = blockName.toLowerCase().replace(' ', '-');
