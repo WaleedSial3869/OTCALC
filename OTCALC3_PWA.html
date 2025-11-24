@@ -881,12 +881,18 @@
                     shiftType,
                     regularShiftStart,
                     regularShiftEnd,
+                    customShiftHours,  // NEW: Save custom shift hours
+                    customShiftStart,  // NEW: Save custom shift start time
                     emailData: [...emailData],
                     totalOT: shiftTotals.totalOT,
                     totalSB: shiftTotals.totalSB,
                     blocks: shiftTotals.blocks,
                     notes: shiftNotes,
-                    timeSlots: generateTimeSlots(shiftType),
+                    timeSlots: generateTimeSlots(
+                        shiftType,
+                        shiftType === 'custom' ? customShiftHours : null,
+                        shiftType === 'custom' ? customShiftStart : null
+                    ),
                     overtimeCode: getOvertimeCode(shiftDate, userSettings.statHolidays),
                     blockOverrides: { ...blockOverrides }
                 };
@@ -2833,7 +2839,10 @@
                                                             {hasOverrides && <span className="text-orange-600 text-sm">⚠️ Has Overrides</span>}
                                                         </div>
                                                         <div className="text-sm text-gray-600">
-                                                            {shift.shiftType === 'weekday' ? 'Weekday (16 hours)' : 'Weekend (64 hours)'} - OT Code: {shift.overtimeCode}
+                                                            {shift.shiftType === 'weekday' ? 'Weekday (16 hours)' :
+                                                             shift.shiftType === 'stat_holiday' ? 'Stat Holiday (24 hours)' :
+                                                             shift.shiftType === 'custom' ? `Custom (${shift.customShiftHours || 8} hours)` :
+                                                             'Weekend (64 hours)'} - OT Code: {shift.overtimeCode}
                                                         </div>
                                                         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2 text-sm">
                                                             <div><span className="font-medium">OT:</span> {shift.totalOT}h</div>
