@@ -300,10 +300,17 @@
                 const [startHour, startMin] = customStart.split(':').map(Number);
 
                 for (let i = 0; i < customHours; i++) {
-                    const currentHour = (startHour + i) % 24;
-                    const nextHour = (startHour + i + 1) % 24;
-                    const start = `${String(currentHour).padStart(2, '0')}:00`;
-                    const end = `${String(nextHour).padStart(2, '0')}:00`;
+                    // Calculate current time slot maintaining minutes
+                    const currentTotalMinutes = startHour * 60 + startMin + (i * 60);
+                    const nextTotalMinutes = currentTotalMinutes + 60;
+
+                    const currentHour = Math.floor((currentTotalMinutes / 60)) % 24;
+                    const currentMin = currentTotalMinutes % 60;
+                    const nextHour = Math.floor((nextTotalMinutes / 60)) % 24;
+                    const nextMin = nextTotalMinutes % 60;
+
+                    const start = `${String(currentHour).padStart(2, '0')}:${String(currentMin).padStart(2, '0')}`;
+                    const end = `${String(nextHour).padStart(2, '0')}:${String(nextMin).padStart(2, '0')}`;
                     slots.push(`${start}-${end}`);
                 }
                 return slots;
@@ -434,18 +441,24 @@
 
             // Generate full 8-hour blocks
             for (let i = 0; i < fullBlocks; i++) {
-                const hoursIntoShift = i * 8;
-                const blockStartHour = startHour + hoursIntoShift;
-                const blockEndHour = blockStartHour + 8;
+                // Calculate start time in total minutes
+                const blockStartMinutes = startHour * 60 + startMin + (i * 8 * 60);
+                const blockEndMinutes = blockStartMinutes + (8 * 60);
+
+                // Convert back to hours and minutes
+                const blockStartH = Math.floor(blockStartMinutes / 60);
+                const blockStartM = blockStartMinutes % 60;
+                const blockEndH = Math.floor(blockEndMinutes / 60);
+                const blockEndM = blockEndMinutes % 60;
 
                 // Calculate which day this block falls on
-                const daysOffset = Math.floor(blockStartHour / 24);
-                const blockStartHourMod = blockStartHour % 24;
-                const blockEndHourMod = blockEndHour % 24;
+                const daysOffset = Math.floor(blockStartH / 24);
+                const blockStartHourMod = blockStartH % 24;
+                const blockEndHourMod = blockEndH % 24;
 
                 blocks.push({
                     name: `Block ${i + 1}`,
-                    timeRange: `${String(blockStartHourMod).padStart(2, '0')}:00-${String(blockEndHourMod).padStart(2, '0')}:00`,
+                    timeRange: `${String(blockStartHourMod).padStart(2, '0')}:${String(blockStartM).padStart(2, '0')}-${String(blockEndHourMod).padStart(2, '0')}:${String(blockEndM).padStart(2, '0')}`,
                     hours: 8,
                     startSlotIndex: i * 8,
                     endSlotIndex: (i + 1) * 8,
@@ -457,17 +470,23 @@
 
             // Add partial final block if needed
             if (remainingHours > 0) {
-                const hoursIntoShift = fullBlocks * 8;
-                const blockStartHour = startHour + hoursIntoShift;
-                const blockEndHour = blockStartHour + remainingHours;
+                // Calculate start time in total minutes
+                const blockStartMinutes = startHour * 60 + startMin + (fullBlocks * 8 * 60);
+                const blockEndMinutes = blockStartMinutes + (remainingHours * 60);
 
-                const daysOffset = Math.floor(blockStartHour / 24);
-                const blockStartHourMod = blockStartHour % 24;
-                const blockEndHourMod = blockEndHour % 24;
+                // Convert back to hours and minutes
+                const blockStartH = Math.floor(blockStartMinutes / 60);
+                const blockStartM = blockStartMinutes % 60;
+                const blockEndH = Math.floor(blockEndMinutes / 60);
+                const blockEndM = blockEndMinutes % 60;
+
+                const daysOffset = Math.floor(blockStartH / 24);
+                const blockStartHourMod = blockStartH % 24;
+                const blockEndHourMod = blockEndH % 24;
 
                 blocks.push({
                     name: `Block ${fullBlocks + 1}`,
-                    timeRange: `${String(blockStartHourMod).padStart(2, '0')}:00-${String(blockEndHourMod).padStart(2, '0')}:00`,
+                    timeRange: `${String(blockStartHourMod).padStart(2, '0')}:${String(blockStartM).padStart(2, '0')}-${String(blockEndHourMod).padStart(2, '0')}:${String(blockEndM).padStart(2, '0')}`,
                     hours: remainingHours,
                     startSlotIndex: fullBlocks * 8,
                     endSlotIndex: fullBlocks * 8 + remainingHours,
