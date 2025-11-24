@@ -1279,7 +1279,11 @@
                         }
                         
                         const date = new Date(shift.date);
-                        const sheetName = `Shift ${shiftIndex + 1} - ${date.getMonth() + 1}-${date.getDate()}`;
+                        const shiftTypeLabel = shift.shiftType === 'weekday' ? 'Weekday'
+                            : shift.shiftType === 'stat_holiday' ? 'StatHol'
+                            : shift.shiftType === 'custom' ? 'Custom'
+                            : 'Weekend';
+                        const sheetName = `Shift ${shiftIndex + 1} - ${date.getMonth() + 1}-${date.getDate()} (${shiftTypeLabel})`;
                         const ws = workbook.addWorksheet(sheetName, {
                             properties: { tabColor: { argb: 'FF4472C4' } }
                         });
@@ -1295,12 +1299,15 @@
                         ws.getCell('A2').value = 'Employee:';
                         ws.getCell('B2').value = employeeName;
                         ws.getCell('A3').value = 'Shift Type:';
-                        const shiftTypeDisplay = shift.shiftType === 'weekday' ? 'Weekday (16 hours)' 
-                            : shift.shiftType === 'stat_holiday' ? 'Stat Holiday (24 hours)' 
+                        const shiftTypeDisplay = shift.shiftType === 'weekday' ? 'Weekday (16 hours)'
+                            : shift.shiftType === 'stat_holiday' ? 'Stat Holiday (24 hours)'
+                            : shift.shiftType === 'custom' ? `Custom (${calculateHoursBetween(shift.regularShiftStart, shift.customShiftEnd || shift.regularShiftEnd)} hours)`
                             : 'Weekend (64 hours)';
                         ws.getCell('B3').value = shiftTypeDisplay;
-                        ws.getCell('A4').value = 'Regular Shift:';
-                        ws.getCell('B4').value = `${shift.regularShiftStart} - ${shift.regularShiftEnd}`;
+                        ws.getCell('A4').value = shift.shiftType === 'custom' ? 'Custom Shift:' : 'Regular Shift:';
+                        ws.getCell('B4').value = shift.shiftType === 'custom'
+                            ? `${shift.regularShiftStart} - ${shift.customShiftEnd || shift.regularShiftEnd}`
+                            : `${shift.regularShiftStart} - ${shift.regularShiftEnd}`;
                         
                         ['A2', 'A3', 'A4'].forEach(cell => {
                             ws.getCell(cell).font = { bold: true };
