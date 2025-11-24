@@ -1843,8 +1843,8 @@
             };
 
             // CRITICAL FIX: Memoized component with local state for textarea
-            const ExceptionOverrideCard = React.memo(({ 
-                blockIndex, 
+            const ExceptionOverrideCard = React.memo(({
+                blockIndex,
                 blockName,
                 emailBasedOT,
                 overrideHours,
@@ -1852,32 +1852,33 @@
                 isOpen,
                 onToggle,
                 onUpdateHours,
-                onUpdateReason
+                onUpdateReason,
+                blockHours = 8.0  // NEW: Support partial blocks
             }) => {
                 // Local state prevents parent re-renders on every keystroke
                 const [localReason, setLocalReason] = useState(overrideReason);
                 const textareaRef = useRef(null);
-                
+
                 // Sync when prop changes
                 useEffect(() => {
                     setLocalReason(overrideReason);
                 }, [overrideReason]);
-                
+
                 // Handle typing locally
                 const handleReasonChange = (e) => {
                     setLocalReason(e.target.value);
                 };
-                
+
                 // Update parent on blur only
                 const handleReasonBlur = () => {
                     if (localReason !== overrideReason) {
                         onUpdateReason(blockIndex, localReason);
                     }
                 };
-                
-                const maxOverride = 8.0 - emailBasedOT;
+
+                const maxOverride = blockHours - emailBasedOT;  // UPDATED: Use blockHours
                 const totalOT = emailBasedOT + overrideHours;
-                const totalSB = 8.0 - totalOT;
+                const totalSB = blockHours - totalOT;  // UPDATED: Use blockHours
                 
                 return (
                     <div className="mt-4">
@@ -2636,6 +2637,7 @@
                                                                             onToggle={toggleOverrideCard}
                                                                             onUpdateHours={(idx, val) => updateBlockOverride(idx, 'manualOT', val)}
                                                                             onUpdateReason={(idx, val) => updateBlockOverride(idx, 'reason', val)}
+                                                                            blockHours={blockMeta.hours}
                                                                         />
                                                                     </>
                                                                 )}
