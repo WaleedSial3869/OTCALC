@@ -286,7 +286,129 @@
 
         // --- COMPONENTS ---
 
+        const SettingsModal = ({ settings, onUpdateSettings, onClose }) => {
+            const [newHolidayDate, setNewHolidayDate] = useState('');
+            const [newHolidayLabel, setNewHolidayLabel] = useState('');
+
+            const handleAddHoliday = () => {
+                if (newHolidayDate && newHolidayLabel) {
+                    const newHoliday = {
+                        date: newHolidayDate,
+                        label: newHolidayLabel
+                    };
+                    const updatedHolidays = [...(settings.statHolidays || []), newHoliday];
+                    onUpdateSettings({ ...settings, statHolidays: updatedHolidays });
+                    setNewHolidayDate('');
+                    setNewHolidayLabel('');
+                }
+            };
+
+            const handleDeleteHoliday = (date) => {
+                const updatedHolidays = settings.statHolidays.filter(h => h.date !== date);
+                onUpdateSettings({ ...settings, statHolidays: updatedHolidays });
+            };
+
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 animate-fade-in">
+                    <div className="bg-white rounded-2xl max-w-md w-full max-h-[90vh] overflow-hidden flex flex-col animate-slide-up shadow-2xl">
+                        {/* Header */}
+                        <div className="p-6 border-b border-gray-100">
+                            <div className="flex justify-between items-center">
+                                <h2 className="text-xl font-bold text-gray-900">Settings</h2>
+                                <button
+                                    onClick={onClose}
+                                    className="text-gray-400 hover:text-gray-600 p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Content */}
+                        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                            {/* Employee Name */}
+                            <div>
+                                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Employee Name</label>
+                                <div className="bg-gray-50 px-4 py-3 rounded-xl text-gray-700 font-medium">
+                                    {settings.employeeName || 'Not set'}
+                                </div>
+                                <p className="text-xs text-gray-500 mt-2">Name cannot be changed after initial setup</p>
+                            </div>
+
+                            {/* Stat Holidays */}
+                            <div>
+                                <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Stat Holidays</label>
+
+                                {/* Add New Holiday */}
+                                <div className="bg-blue-50 p-4 rounded-xl mb-4">
+                                    <div className="space-y-3">
+                                        <input
+                                            type="date"
+                                            value={newHolidayDate}
+                                            onChange={(e) => setNewHolidayDate(e.target.value)}
+                                            className="w-full px-3 py-2 rounded-lg border border-blue-200 focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                                            placeholder="Date"
+                                        />
+                                        <input
+                                            type="text"
+                                            value={newHolidayLabel}
+                                            onChange={(e) => setNewHolidayLabel(e.target.value)}
+                                            className="w-full px-3 py-2 rounded-lg border border-blue-200 focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                                            placeholder="e.g. Christmas Day"
+                                        />
+                                        <button
+                                            onClick={handleAddHoliday}
+                                            disabled={!newHolidayDate || !newHolidayLabel}
+                                            className="w-full bg-blue-600 text-white py-2 rounded-lg font-bold text-sm hover:bg-blue-700 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                        >
+                                            <Plus /> Add Holiday
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Holiday List */}
+                                <div className="space-y-2">
+                                    {(!settings.statHolidays || settings.statHolidays.length === 0) ? (
+                                        <div className="text-center py-8 text-gray-400 text-sm">
+                                            No stat holidays configured yet
+                                        </div>
+                                    ) : (
+                                        settings.statHolidays.sort((a, b) => a.date.localeCompare(b.date)).map(holiday => (
+                                            <div key={holiday.date} className="flex items-center justify-between bg-white border border-gray-200 p-3 rounded-lg">
+                                                <div>
+                                                    <div className="font-bold text-gray-900 text-sm">{holiday.label}</div>
+                                                    <div className="text-xs text-gray-500">{new Date(holiday.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}</div>
+                                                </div>
+                                                <button
+                                                    onClick={() => handleDeleteHoliday(holiday.date)}
+                                                    className="text-gray-300 hover:text-red-500 p-2 rounded-lg hover:bg-red-50 transition-colors"
+                                                >
+                                                    <Trash />
+                                                </button>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="p-6 border-t border-gray-100">
+                            <button
+                                onClick={onClose}
+                                className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-xl font-bold transition-colors"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
         const Dashboard = ({ shifts, settings, onNewShift, onDeleteShift, onUpdateSettings, onExport, welcomeMessage, selectedMonth, onMonthChange }) => {
+            const [showSettings, setShowSettings] = useState(false);
+
             // Filter shifts for selected month
             const filteredShifts = useMemo(() => {
                 return shifts.filter(shift => {
@@ -319,15 +441,34 @@
             };
 
             return (
-                <div className="max-w-2xl mx-auto space-y-6 pb-20 animate-fade-in px-4 pt-6">
-                    {/* Header */}
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                        <div className="flex justify-between items-center mb-4">
-                            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">OTCALC Zen</h1>
-                            <div className="bg-blue-50 text-blue-700 px-4 py-1.5 rounded-full text-xs font-bold tracking-wide uppercase">
-                                {settings.employeeName || 'Guest'}
+                <>
+                    {/* Settings Modal */}
+                    {showSettings && (
+                        <SettingsModal
+                            settings={settings}
+                            onUpdateSettings={onUpdateSettings}
+                            onClose={() => setShowSettings(false)}
+                        />
+                    )}
+
+                    <div className="max-w-2xl mx-auto space-y-6 pb-20 animate-fade-in px-4 pt-6">
+                        {/* Header */}
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                            <div className="flex justify-between items-center mb-4">
+                                <h1 className="text-2xl font-bold text-gray-900 tracking-tight">OTCALC Zen</h1>
+                                <div className="flex items-center gap-2">
+                                    <div className="bg-blue-50 text-blue-700 px-4 py-1.5 rounded-full text-xs font-bold tracking-wide uppercase">
+                                        {settings.employeeName || 'Guest'}
+                                    </div>
+                                    <button
+                                        onClick={() => setShowSettings(true)}
+                                        className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                        aria-label="Settings"
+                                    >
+                                        <Settings />
+                                    </button>
+                                </div>
                             </div>
-                        </div>
                         {/* Month Navigation */}
                         <div className="flex items-center justify-center gap-4 bg-gray-50 p-3 rounded-xl">
                             <button
@@ -462,6 +603,7 @@
                         )}
                     </div>
                 </div>
+                </>
             );
         };
 
